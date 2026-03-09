@@ -1,0 +1,66 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Archivo+Black&display=swap');
+
+:root {
+  --bg: #0f1a0b;
+  --card: #1a2814;
+  --border: #2d4a22;
+  --border-light: #1f3318;
+  --accent: #a8d870;
+  --accent-dim: rgba(168,216,112,0.15);
+  --text: #e8f0d8;
+  --text-mid: rgba(232,240,216,0.6);
+  --text-dim: rgba(232,240,216,0.3);
+  --red: #e85454;
+  --warn: #e8b854;
+  --ok: #54c878;
+  --input: #0d150a;
+  --font: 'DM Sans', sans-serif;
+  --font-mono: 'JetBrains Mono', 'SF Mono', monospace;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body, #__next { height: 100%; overflow: hidden; }
+body {
+  font-family: var(--font);
+  background: var(--bg);
+  color: var(--text);
+}
+
+::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+input, textarea, select {
+  font-family: var(--font);
+  background: var(--input);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 7px;
+  padding: 7px 11px;
+  font-size: 13px;
+  outline: none;
+  width: 100%;
+}
+input:focus, textarea:focus, select:focus { border-color: var(--accent); }
+select {
+  cursor: pointer;
+  appearance: none;
+  padding-right: 28px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='none' stroke='%23a8d870' stroke-width='2'%3E%3Cpath d='M2 4l4 4 4-4'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+}
+textarea { resize: vertical; min-height: 50px; }
+button { font-family: var(--font); cursor: pointer; border: none; }
+
+.fade-in {
+  animation: fadeIn 0.2s ease;
+}
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
