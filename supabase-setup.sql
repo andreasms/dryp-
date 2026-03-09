@@ -16,8 +16,8 @@ create table if not exists team_members (
 -- Indsæt jeres 3 teammedlemmer (ÆNDR til jeres rigtige emails!)
 insert into team_members (email, name, role) values
   ('andreas@example.com', 'Andreas', 'admin'),
-  ('partner1@example.com', 'Partner 1', 'member'),
-  ('partner2@example.com', 'Partner 2', 'member')
+  ('heuckmikkel@gmail.com', 'Partner 1', 'member'),
+  ('info@jpgroent.dk', 'Partner 2', 'member')
 on conflict (email) do nothing;
 
 -- ─── 2. DELT TEAM DATA TABEL ───
