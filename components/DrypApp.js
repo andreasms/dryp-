@@ -1,6 +1,9 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
 import { createBatch, getBatches, updateBatchStatus } from '@/lib/db/batches'
+import { getActiveLots, decrementLotQty } from '@/lib/db/lots'
+import { getBatchLotUsage, createBatchLotUsage } from '@/lib/db/batchLotUsage'
+import { recordMovement } from '@/lib/db/movements'
 
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,6)
 const today=()=>new Date().toISOString().slice(0,10)
@@ -262,8 +265,20 @@ function Batches({data,update,supabase}){
   const[sqlBatches,setSqlBatches]=useState(null)
   const[selectedId,setSelectedId]=useState(null)
   const[acting,setActing]=useState(false)
+  const[activeLots,setActiveLots]=useState([])
+  const[lotUsage,setLotUsage]=useState([])
+  const[newLot,setNewLot]=useState({lotId:"",qtyUsed:""})
+  const[savingLot,setSavingLot]=useState(false)
+
   const refresh=()=>{if(!supabase)return;getBatches(supabase).then(rows=>{if(rows&&rows.length>0)setSqlBatches(rows)}).catch(()=>{})}
   useEffect(()=>{refresh()},[supabase])
+
+  useEffect(()=>{
+    if(!supabase||!selectedId)return
+    getActiveLots(supabase).then(setActiveLots).catch(()=>{})
+    getBatchLotUsage(supabase,selectedId).then(setLotUsage).catch(()=>{})
+  },[supabase,selectedId])
+
   const batches=sqlBatches||data.batches
   const isSql=!!sqlBatches
   const selected=selectedId?sqlBatches?.find(b=>b.id===selectedId):null
@@ -274,6 +289,22 @@ function Batches({data,update,supabase}){
     try{await updateBatchStatus(supabase,selectedId,status,extras);refresh();setSelectedId(null)}
     catch(err){console.error("[DRYP] updateBatchStatus failed:",err)}
     finally{setActing(false)}
+  }
+
+  const addLotUsage=async()=>{
+    const lot=activeLots.find(l=>l.id===newLot.lotId)
+    if(!lot||!newLot.qtyUsed)return
+    const qty=parseFloat(newLot.qtyUsed)
+    setSavingLot(true)
+    try{
+      const{data:{user}}=await supabase.auth.getUser()
+      await createBatchLotUsage(supabase,{batch_id:selectedId,lot_id:lot.id,item_id:lot.item_id,qty_used:qty,unit:lot.unit})
+      await decrementLotQty(supabase,lot.id,qty)
+      await recordMovement(supabase,{user_id:user.id,item_id:lot.item_id,lot_id:lot.id,batch_id:selectedId,movement_type:"consumption",qty:-qty,unit:lot.unit,reference:selectedId,created_by:user.email})
+      const[usage,lots]=await Promise.all([getBatchLotUsage(supabase,selectedId),getActiveLots(supabase)])
+      setLotUsage(usage);setActiveLots(lots);setNewLot({lotId:"",qtyUsed:""})
+    }catch(err){console.error("[DRYP] addLotUsage failed:",err)}
+    finally{setSavingLot(false)}
   }
 
   return<div style={{maxWidth:960}}>
@@ -299,10 +330,31 @@ function Batches({data,update,supabase}){
       </div>
     </Card>)}
 
-    {selected&&<Modal title={`Batch · ${selected.batch_number}`} onClose={()=>setSelectedId(null)}>
+    {selected&&<Modal title={`Batch · ${selected.batch_number}`} onClose={()=>setSelectedId(null)} wide>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"4px 24px",fontSize:13,marginBottom:20}}>
         {[["Batch-nr.",selected.batch_number],["Opskrift",selected.recipe_snapshot?.name||selected.recipe_id||"—"],["Status",selected.status],["Operatør",selected.operator||"—"],["Planlagt antal",selected.planned_qty||"—"],["Planlagt dato",selected.planned_date||"—"]].map(([k,v])=><div key={k} style={{padding:"6px 0",borderBottom:`1px solid ${T.brdL}`}}><div style={{fontSize:10,color:T.dim,textTransform:"uppercase",letterSpacing:".05em",marginBottom:2}}>{k}</div><div style={{fontWeight:500}}>{v}</div></div>)}
       </div>
+
+      <div style={{borderTop:`1px solid ${T.brdL}`,paddingTop:14,marginBottom:16}}>
+        <div style={{fontSize:11,fontWeight:700,color:T.acc,textTransform:"uppercase",letterSpacing:".06em",marginBottom:10}}>Råvarer brugt i batch</div>
+        {lotUsage.length===0&&<div style={{fontSize:12,color:T.dim,marginBottom:10}}>Ingen råvarer registreret endnu</div>}
+        {lotUsage.map(u=><div key={u.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:12,padding:"5px 0",borderBottom:`1px solid ${T.brdL}`}}>
+          <div>
+            <span style={{fontWeight:500}}>{u.lots?.lot_number||u.lot_id}</span>
+            <span style={{color:T.dim,marginLeft:8}}>{data.inventory.find(i=>i.id===u.lots?.item_id)?.name||u.lots?.item_id||u.item_id}</span>
+          </div>
+          <span style={{fontFamily:T.fm,color:T.acc}}>{u.qty_used} {u.unit}</span>
+        </div>)}
+        {selected.status==="in_progress"&&<div style={{display:"flex",gap:8,alignItems:"center",marginTop:12}}>
+          <select value={newLot.lotId} onChange={e=>setNewLot({...newLot,lotId:e.target.value})} style={{flex:2}}>
+            <option value="">Vælg lot...</option>
+            {activeLots.map(l=><option key={l.id} value={l.id}>{l.lot_number} — {data.inventory.find(i=>i.id===l.item_id)?.name||l.item_id} ({l.qty_remaining} {l.unit})</option>)}
+          </select>
+          <input type="number" step=".01" min="0" value={newLot.qtyUsed} onChange={e=>setNewLot({...newLot,qtyUsed:e.target.value})} placeholder="Antal" style={{flex:1}}/>
+          <Btn small primary disabled={savingLot||!newLot.lotId||!newLot.qtyUsed} onClick={addLotUsage}>+ Tilføj</Btn>
+        </div>}
+      </div>
+
       <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
         <Btn onClick={()=>setSelectedId(null)}>Luk</Btn>
         {selected.status==="planned"&&<Btn primary disabled={acting} onClick={()=>doAction("in_progress",{started_at:new Date().toISOString()})}>▶ Start batch</Btn>}
