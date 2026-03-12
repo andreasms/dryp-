@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
-import { createBatch, getBatches } from '@/lib/db/batches'
+import { createBatch, getBatches, updateBatchStatus } from '@/lib/db/batches'
 
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,6)
 const today=()=>new Date().toISOString().slice(0,10)
@@ -260,9 +260,22 @@ function Production({data,update,supabase}){
 function Batches({data,update,supabase}){
   const[show,setShow]=useState(false);const[form,setForm]=useState({})
   const[sqlBatches,setSqlBatches]=useState(null)
-  useEffect(()=>{if(!supabase)return;getBatches(supabase).then(rows=>{if(rows&&rows.length>0)setSqlBatches(rows)}).catch(()=>{})},[supabase])
+  const[selectedId,setSelectedId]=useState(null)
+  const[acting,setActing]=useState(false)
+  const refresh=()=>{if(!supabase)return;getBatches(supabase).then(rows=>{if(rows&&rows.length>0)setSqlBatches(rows)}).catch(()=>{})}
+  useEffect(()=>{refresh()},[supabase])
   const batches=sqlBatches||data.batches
   const isSql=!!sqlBatches
+  const selected=selectedId?sqlBatches?.find(b=>b.id===selectedId):null
+
+  const doAction=async(status,extras)=>{
+    if(!supabase||!selectedId)return
+    setActing(true)
+    try{await updateBatchStatus(supabase,selectedId,status,extras);refresh();setSelectedId(null)}
+    catch(err){console.error("[DRYP] updateBatchStatus failed:",err)}
+    finally{setActing(false)}
+  }
+
   return<div style={{maxWidth:960}}>
     <SH title="Batches & GS1" desc="Sporbarhed og stregkode-forberedelse" tip="Hver batch har et unikt ID til sporbarhed. GTIN-feltet er klar til når I får GS1 medlemskab — så kan I linke batches direkte til stregkoder."><Btn primary onClick={()=>{setForm({id:`DRYP-${today().replace(/-/g,"").slice(2)}-${String(data.batches.length+1).padStart(3,"0")}`,created:today(),recipeName:"",rapsolieOrigin:"Dansk",status:"produceret",bestBefore:"",notes:"",gtin:"",gs1Note:""});setShow(true)}}><Plus s={12} c={T.bg}/> Ny batch</Btn></SH>
 
@@ -271,7 +284,7 @@ function Batches({data,update,supabase}){
       <div style={{fontSize:12,color:T.mid,lineHeight:1.6}}>Når I får GS1 Danmark medlemskab, tildeles I et firma-præfiks (typisk 5790xxxxxxx). Hvert produkt får et GTIN-13 nummer som kan printes som EAN-stregkode. Udfyld GTIN-feltet på batches for at koble produktion til stregkoder.</div>
     </Card>
 
-    {batches.length===0?<Empty text="Ingen batches"/>:[...batches].sort((a,b)=>((isSql?b.planned_date:b.created)||"").localeCompare((isSql?a.planned_date:a.created)||"")).map(b=><Card key={b.id||b.batch_number} style={{marginBottom:8,padding:14}}>
+    {batches.length===0?<Empty text="Ingen batches"/>:[...batches].sort((a,b)=>((isSql?b.planned_date:b.created)||"").localeCompare((isSql?a.planned_date:a.created)||"")).map(b=><Card key={b.id||b.batch_number} onClick={isSql?()=>setSelectedId(b.id):undefined} style={{marginBottom:8,padding:14,cursor:isSql?"pointer":"default"}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
         <div>
           <div style={{fontSize:14,fontWeight:600}}>{isSql?b.batch_number:b.id}</div>
@@ -281,10 +294,21 @@ function Batches({data,update,supabase}){
         </div>
         <div style={{display:"flex",gap:6,alignItems:"center"}}>
           <Badge c={{planned:T.acc,in_progress:T.warn,completed:T.ok,failed:T.red,recalled:T.red,produceret:T.acc,lagret:T.warn,frigivet:T.ok,afsluttet:T.dim}[b.status]||T.dim}>{b.status}</Badge>
-          {!isSql&&<><Btn small onClick={()=>{setForm({...b,gtin:b.gtin||"",gs1Note:b.gs1Note||""});setShow(true)}}>✎</Btn><Btn small danger onClick={()=>{if(confirm("Slet?"))update("batches",prev=>prev.filter(x=>x.id!==b.id))}}>✕</Btn></>}
+          {!isSql&&<><Btn small onClick={e=>{e.stopPropagation();setForm({...b,gtin:b.gtin||"",gs1Note:b.gs1Note||""});setShow(true)}}>✎</Btn><Btn small danger onClick={e=>{e.stopPropagation();if(confirm("Slet?"))update("batches",prev=>prev.filter(x=>x.id!==b.id))}}>✕</Btn></>}
         </div>
       </div>
     </Card>)}
+
+    {selected&&<Modal title={`Batch · ${selected.batch_number}`} onClose={()=>setSelectedId(null)}>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"4px 24px",fontSize:13,marginBottom:20}}>
+        {[["Batch-nr.",selected.batch_number],["Opskrift",selected.recipe_snapshot?.name||selected.recipe_id||"—"],["Status",selected.status],["Operatør",selected.operator||"—"],["Planlagt antal",selected.planned_qty||"—"],["Planlagt dato",selected.planned_date||"—"]].map(([k,v])=><div key={k} style={{padding:"6px 0",borderBottom:`1px solid ${T.brdL}`}}><div style={{fontSize:10,color:T.dim,textTransform:"uppercase",letterSpacing:".05em",marginBottom:2}}>{k}</div><div style={{fontWeight:500}}>{v}</div></div>)}
+      </div>
+      <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+        <Btn onClick={()=>setSelectedId(null)}>Luk</Btn>
+        {selected.status==="planned"&&<Btn primary disabled={acting} onClick={()=>doAction("in_progress",{started_at:new Date().toISOString()})}>▶ Start batch</Btn>}
+        {selected.status==="in_progress"&&<Btn primary disabled={acting} onClick={()=>doAction("completed",{completed_at:new Date().toISOString()})}>✓ Afslut batch</Btn>}
+      </div>
+    </Modal>}
     {show&&<Modal title={`Batch · ${form.id}`} onClose={()=>setShow(false)}>
       <Field label="Batch-nr."><input value={form.id} onChange={e=>setForm({...form,id:e.target.value})}/></Field>
       <Field label="Oprettet"><input type="date" value={form.created} onChange={e=>setForm({...form,created:e.target.value})}/></Field>
