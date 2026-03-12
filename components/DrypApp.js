@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
-import { createBatch } from '@/lib/db/batches'
+import { createBatch, getBatches } from '@/lib/db/batches'
 
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,6)
 const today=()=>new Date().toISOString().slice(0,10)
@@ -257,8 +257,12 @@ function Production({data,update,supabase}){
 }
 
 // ═══ BATCHES with GS1 ═══
-function Batches({data,update}){
+function Batches({data,update,supabase}){
   const[show,setShow]=useState(false);const[form,setForm]=useState({})
+  const[sqlBatches,setSqlBatches]=useState(null)
+  useEffect(()=>{if(!supabase)return;getBatches(supabase).then(rows=>{if(rows&&rows.length>0)setSqlBatches(rows)}).catch(()=>{})},[supabase])
+  const batches=sqlBatches||data.batches
+  const isSql=!!sqlBatches
   return<div style={{maxWidth:960}}>
     <SH title="Batches & GS1" desc="Sporbarhed og stregkode-forberedelse" tip="Hver batch har et unikt ID til sporbarhed. GTIN-feltet er klar til når I får GS1 medlemskab — så kan I linke batches direkte til stregkoder."><Btn primary onClick={()=>{setForm({id:`DRYP-${today().replace(/-/g,"").slice(2)}-${String(data.batches.length+1).padStart(3,"0")}`,created:today(),recipeName:"",rapsolieOrigin:"Dansk",status:"produceret",bestBefore:"",notes:"",gtin:"",gs1Note:""});setShow(true)}}><Plus s={12} c={T.bg}/> Ny batch</Btn></SH>
 
@@ -267,10 +271,18 @@ function Batches({data,update}){
       <div style={{fontSize:12,color:T.mid,lineHeight:1.6}}>Når I får GS1 Danmark medlemskab, tildeles I et firma-præfiks (typisk 5790xxxxxxx). Hvert produkt får et GTIN-13 nummer som kan printes som EAN-stregkode. Udfyld GTIN-feltet på batches for at koble produktion til stregkoder.</div>
     </Card>
 
-    {data.batches.length===0?<Empty text="Ingen batches"/>:[...data.batches].sort((a,b)=>(b.created||"").localeCompare(a.created||"")).map(b=><Card key={b.id} style={{marginBottom:8,padding:14}}>
+    {batches.length===0?<Empty text="Ingen batches"/>:[...batches].sort((a,b)=>((isSql?b.planned_date:b.created)||"").localeCompare((isSql?a.planned_date:a.created)||"")).map(b=><Card key={b.id||b.batch_number} style={{marginBottom:8,padding:14}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-        <div><div style={{fontSize:14,fontWeight:600}}>{b.id}</div><div style={{fontSize:12,color:T.dim}}>{b.recipeName||"—"} · {b.created}{b.bestBefore&&` · Holdbar til: ${b.bestBefore}`}</div>{b.gtin&&<div style={{fontSize:11,color:T.acc,fontFamily:T.fm,marginTop:2}}>GTIN: {b.gtin}</div>}</div>
-        <div style={{display:"flex",gap:6,alignItems:"center"}}><Badge c={{produceret:T.acc,lagret:T.warn,frigivet:T.ok,afsluttet:T.dim}[b.status]||T.dim}>{b.status}</Badge><Btn small onClick={()=>{setForm({...b,gtin:b.gtin||"",gs1Note:b.gs1Note||""});setShow(true)}}>✎</Btn><Btn small danger onClick={()=>{if(confirm("Slet?"))update("batches",prev=>prev.filter(x=>x.id!==b.id))}}>✕</Btn></div>
+        <div>
+          <div style={{fontSize:14,fontWeight:600}}>{isSql?b.batch_number:b.id}</div>
+          <div style={{fontSize:12,color:T.dim}}>{isSql?(b.recipe_snapshot?.name||b.recipe_id||"—"):(b.recipeName||"—")} · {isSql?b.planned_date:b.created}{!isSql&&b.bestBefore&&` · Holdbar til: ${b.bestBefore}`}</div>
+          {isSql&&b.operator&&<div style={{fontSize:11,color:T.mid,marginTop:2}}>Operatør: {b.operator}{b.planned_qty?` · Planlagt: ${b.planned_qty} stk`:""}</div>}
+          {!isSql&&b.gtin&&<div style={{fontSize:11,color:T.acc,fontFamily:T.fm,marginTop:2}}>GTIN: {b.gtin}</div>}
+        </div>
+        <div style={{display:"flex",gap:6,alignItems:"center"}}>
+          <Badge c={{planned:T.acc,in_progress:T.warn,completed:T.ok,failed:T.red,recalled:T.red,produceret:T.acc,lagret:T.warn,frigivet:T.ok,afsluttet:T.dim}[b.status]||T.dim}>{b.status}</Badge>
+          {!isSql&&<><Btn small onClick={()=>{setForm({...b,gtin:b.gtin||"",gs1Note:b.gs1Note||""});setShow(true)}}>✎</Btn><Btn small danger onClick={()=>{if(confirm("Slet?"))update("batches",prev=>prev.filter(x=>x.id!==b.id))}}>✕</Btn></>}
+        </div>
       </div>
     </Card>)}
     {show&&<Modal title={`Batch · ${form.id}`} onClose={()=>setShow(false)}>
