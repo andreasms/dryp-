@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
 import { createBatch, getBatches, updateBatchStatus } from '@/lib/db/batches'
-import { getActiveLots, decrementLotQty } from '@/lib/db/lots'
+import { createLot, getActiveLots, decrementLotQty } from '@/lib/db/lots'
 import { getBatchLotUsage, createBatchLotUsage } from '@/lib/db/batchLotUsage'
 import { recordMovement } from '@/lib/db/movements'
 
@@ -458,11 +458,52 @@ function HACCPLogs({data,update}){
 }
 
 // ═══ INVENTORY, PLANNING, CUSTOMERS, ECONOMY — kept from v2 with bigger fonts ═══
-function Inventory({data,update}){
+function Inventory({data,update,supabase}){
   const[show,setShow]=useState(false);const[form,setForm]=useState({});const[eId,setEId]=useState(null);const[qv,setQv]=useState("")
+  const[showLot,setShowLot]=useState(false);const[lotForm,setLotForm]=useState({});const[savingLot,setSavingLot]=useState(false)
   const cats=[...new Set(data.inventory.map(i=>i.cat))]
+  const rawItems=(data.inventory||[]).filter(i=>i.cat==="Råvare")
+
+  const saveLot=async()=>{
+    if(!lotForm.item_id||!lotForm.lot_number||!lotForm.qty_received)return
+    setSavingLot(true)
+    try{
+      const{data:{user}}=await supabase.auth.getUser()
+      const qty=parseFloat(lotForm.qty_received)||0
+      const inv=rawItems.find(i=>i.id===lotForm.item_id)
+      const lot=await createLot(supabase,{
+        user_id:user.id,
+        item_id:lotForm.item_id,
+        lot_number:lotForm.lot_number,
+        supplier:lotForm.supplier||null,
+        received_date:lotForm.received_date||null,
+        expiry_date:lotForm.expiry_date||null,
+        qty_received:qty,
+        qty_remaining:qty,
+        unit:inv?.unit||"kg",
+      })
+      await recordMovement(supabase,{
+        user_id:user.id,
+        item_id:lotForm.item_id,
+        lot_id:lot.id,
+        movement_type:"receipt",
+        qty:qty,
+        unit:inv?.unit||"kg",
+        reference:lotForm.lot_number,
+        notes:`Lot modtaget`,
+      })
+      setShowLot(false);setLotForm({})
+    }catch(err){console.error("[DRYP] createLot failed:",err);alert("Fejl ved oprettelse af lot: "+err.message)}
+    setSavingLot(false)
+  }
+
   return<div style={{maxWidth:960}}>
-    <SH title="Lagerbeholdning" desc="Klik på antal for hurtig-edit" tip="Her styrer du al lagerbeholdning. Klik direkte på tallet for hurtig ændring, eller ✎ for alle detaljer. Lagerstatus påvirker indkøbsplanen automatisk."><Btn primary onClick={()=>{setForm({id:uid(),name:"",unit:"stk",qty:0,min:0,cat:"Råvare",leadDays:7,supplier:"",costPer:0});setShow(true)}}><Plus s={12} c={T.bg}/> Tilføj vare</Btn></SH>
+    <SH title="Lagerbeholdning" desc="Klik på antal for hurtig-edit" tip="Her styrer du al lagerbeholdning. Klik direkte på tallet for hurtig ændring, eller ✎ for alle detaljer. Lagerstatus påvirker indkøbsplanen automatisk.">
+      <div style={{display:"flex",gap:8}}>
+        <Btn onClick={()=>{if(rawItems.length===0){alert("Opret en råvare i lagerbeholdningen først.");return}setLotForm({item_id:rawItems[0]?.id||"",lot_number:"",supplier:"",qty_received:"",received_date:"",expiry_date:""});setShowLot(true)}}><Plus s={12} c={T.txt}/> Opret lot</Btn>
+        <Btn primary onClick={()=>{setForm({id:uid(),name:"",unit:"stk",qty:0,min:0,cat:"Råvare",leadDays:7,supplier:"",costPer:0});setShow(true)}}><Plus s={12} c={T.bg}/> Tilføj vare</Btn>
+      </div>
+    </SH>
     {cats.map(cat=><div key={cat} style={{marginBottom:22}}><div style={{fontSize:11,fontWeight:700,color:T.dim,letterSpacing:".1em",textTransform:"uppercase",marginBottom:10,paddingBottom:4,borderBottom:`1px solid ${T.brdL}`}}>{cat}</div>
       {data.inventory.filter(i=>i.cat===cat).map(item=>{const low=item.qty<item.min;return<Card key={item.id} style={{marginBottom:6,padding:12}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><div><div style={{fontSize:14,fontWeight:500}}>{low&&<span style={{color:T.red}}>⚠ </span>}{item.name}</div><div style={{fontSize:12,color:T.dim}}>Min: {item.min} · Lead: {item.leadDays}d{item.supplier&&` · ${item.supplier}`} · {fk(item.costPer)}/{item.unit}</div></div>
@@ -470,6 +511,15 @@ function Inventory({data,update}){
         <div style={{marginTop:6,height:4,background:T.input,borderRadius:2,overflow:"hidden"}}><div style={{height:"100%",width:`${Math.min(item.qty/(item.min||1)*100,100)}%`,background:low?T.red:item.qty<item.min*1.5?T.warn:T.ok,borderRadius:2}}/></div>
       </Card>})}
     </div>)}
+    {showLot&&<Modal title="Opret lot" onClose={()=>setShowLot(false)}>
+      <Field label="Råvare"><select value={lotForm.item_id} onChange={e=>setLotForm({...lotForm,item_id:e.target.value})}>{rawItems.map(i=><option key={i.id} value={i.id}>{i.name}</option>)}</select></Field>
+      <Field label="Lot-nummer" tip="Leverandørens lot- eller batchnummer fra leveringsdokumentet"><input value={lotForm.lot_number} onChange={e=>setLotForm({...lotForm,lot_number:e.target.value})} placeholder="F.eks. LOT-2024-001"/></Field>
+      <Field label="Modtaget antal"><input type="number" step="any" value={lotForm.qty_received} onChange={e=>setLotForm({...lotForm,qty_received:e.target.value})} placeholder={rawItems.find(i=>i.id===lotForm.item_id)?.unit||"kg"}/></Field>
+      <Field label="Leverandør"><input value={lotForm.supplier} onChange={e=>setLotForm({...lotForm,supplier:e.target.value})} placeholder="Valgfri"/></Field>
+      <Field label="Modtagelsesdato"><input type="date" value={lotForm.received_date} onChange={e=>setLotForm({...lotForm,received_date:e.target.value})}/></Field>
+      <Field label="Udløbsdato" tip="Valgfri — bruges til FEFO-sortering og udløbsadvarsler"><input type="date" value={lotForm.expiry_date} onChange={e=>setLotForm({...lotForm,expiry_date:e.target.value})}/></Field>
+      <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn onClick={()=>setShowLot(false)}>Annuller</Btn><Btn primary onClick={saveLot} disabled={savingLot}>{savingLot?"Gemmer...":"✓ Opret lot"}</Btn></div>
+    </Modal>}
     {show&&<Modal title={form.name||"Ny vare"} onClose={()=>setShow(false)}><Field label="Navn"><input value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/></Field><Field label="Kategori" tip="'Råvare' bruges i opskriftkalkulator. Alt andet regnes som emballage."><select value={form.cat} onChange={e=>setForm({...form,cat:e.target.value})}><option>Råvare</option><option>Emballage</option><option>Andet</option></select></Field><Field label="Enhed"><input value={form.unit} onChange={e=>setForm({...form,unit:e.target.value})}/></Field><Field label="Beholdning"><input type="number" value={form.qty} onChange={e=>setForm({...form,qty:parseFloat(e.target.value)||0})}/></Field><Field label="Minimum"><input type="number" value={form.min} onChange={e=>setForm({...form,min:parseFloat(e.target.value)||0})}/></Field><Field label="Lead time (dage)" tip="Antal dage fra bestilling til levering"><input type="number" value={form.leadDays} onChange={e=>setForm({...form,leadDays:parseInt(e.target.value)||0})}/></Field><Field label="Leverandør"><input value={form.supplier} onChange={e=>setForm({...form,supplier:e.target.value})}/></Field><Field label="Pris pr. enhed"><input type="number" step=".1" value={form.costPer} onChange={e=>setForm({...form,costPer:parseFloat(e.target.value)||0})}/></Field><div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn onClick={()=>setShow(false)}>Annuller</Btn><Btn primary onClick={()=>{update("inventory",p=>p.find(i=>i.id===form.id)?p.map(i=>i.id===form.id?form:i):[...p,form]);setShow(false)}}>✓ Gem</Btn></div></Modal>}
   </div>
 }
