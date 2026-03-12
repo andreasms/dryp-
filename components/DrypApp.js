@@ -346,6 +346,7 @@ function Batches({data,update,supabase}){
       <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
         <div style={{fontSize:18,fontWeight:700,fontFamily:T.fm}}>{selected.batch_number}</div>
         <Badge c={{planned:T.acc,in_progress:T.warn,completed:T.ok,failed:T.red,recalled:T.red}[selected.status]||T.dim}>{selected.status}</Badge>
+        <Tip text={"planned: Batch oprettet, produktion ikke startet.\nin_progress: Produktion i gang — registrér råvarer og faktisk antal.\ncompleted: Produktion afsluttet og godkendt."}/>
       </div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"8px 24px",fontSize:12,marginBottom:22}}>
         {[["Opskrift",selected.recipe_snapshot?.name||selected.recipe_id||"—"],["Operatør",selected.operator||"—"],["Planlagt antal",selected.planned_qty?`${selected.planned_qty} stk`:"—"],["Planlagt dato",selected.planned_date||"—"]].map(([k,v])=><div key={k}><div style={{fontSize:10,color:T.dim,textTransform:"uppercase",letterSpacing:".05em",marginBottom:3}}>{k}</div><div style={{fontWeight:500}}>{v}</div></div>)}
@@ -365,19 +366,28 @@ function Batches({data,update,supabase}){
         </div>
 
         {selected.status==="in_progress"&&<>
-          <div style={{fontSize:11,fontWeight:600,color:T.mid,marginBottom:8}}>Tilføj råvare-lot</div>
-          <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:16}}>
-            <select value={newLot.lotId} onChange={e=>setNewLot({...newLot,lotId:e.target.value})} style={{flex:2}}>
-              <option value="">Vælg lot...</option>
-              {activeLots.filter(l=>(selected.recipe_snapshot?.bom||[]).map(b=>b.itemId).includes(l.item_id)).map(l=><option key={l.id} value={l.id}>{l.lot_number} — {data.inventory.find(i=>i.id===l.item_id)?.name||l.item_id} ({l.qty_remaining} {l.unit})</option>)}
-            </select>
-            <input type="number" step=".01" min="0" value={newLot.qtyUsed} onChange={e=>setNewLot({...newLot,qtyUsed:e.target.value})} placeholder="Antal" style={{flex:1}}/>
-            <Btn small primary disabled={savingLot||!newLot.lotId||!newLot.qtyUsed} onClick={addLotUsage}>+ Tilføj</Btn>
+          <div style={{display:"flex",alignItems:"center",marginBottom:8}}>
+            <div style={{fontSize:11,fontWeight:600,color:T.mid}}>Tilføj råvare-lot</div>
+            <Tip text="Et lot er en specifik leverance af en råvare med lottnummer og mængde. Opret lots under Lager → Modtag varer. Kun lots tilknyttet denne opskrifts råvarer vises her."/>
           </div>
+          {activeLots.filter(l=>(selected.recipe_snapshot?.bom||[]).map(b=>b.itemId).includes(l.item_id)).length===0
+            ?<div style={{fontSize:12,color:T.warn,marginBottom:16,padding:"8px 12px",background:T.input,borderRadius:8}}>Ingen relevante lots fundet endnu. Opret et lot i Lager for at registrere råvareforbrug.</div>
+            :<div style={{display:"flex",gap:8,alignItems:"center",marginBottom:16}}>
+              <select value={newLot.lotId} onChange={e=>setNewLot({...newLot,lotId:e.target.value})} style={{flex:2}}>
+                <option value="">Vælg lot...</option>
+                {activeLots.filter(l=>(selected.recipe_snapshot?.bom||[]).map(b=>b.itemId).includes(l.item_id)).map(l=><option key={l.id} value={l.id}>{l.lot_number} — {data.inventory.find(i=>i.id===l.item_id)?.name||l.item_id} ({l.qty_remaining} {l.unit})</option>)}
+              </select>
+              <input type="number" step=".01" min="0" value={newLot.qtyUsed} onChange={e=>setNewLot({...newLot,qtyUsed:e.target.value})} placeholder="Antal" style={{flex:1}}/>
+              <Btn small primary disabled={savingLot||!newLot.lotId||!newLot.qtyUsed} onClick={addLotUsage}>+ Tilføj</Btn>
+            </div>
+          }
         </>}
 
         <div style={{display:"flex",alignItems:"center",gap:10}}>
-          <div style={{fontSize:11,fontWeight:600,color:T.mid}}>Faktisk produceret</div>
+          <div style={{display:"flex",alignItems:"center"}}>
+            <div style={{fontSize:11,fontWeight:600,color:T.mid}}>Faktisk produceret</div>
+            <Tip text="Angiv det faktiske antal færdigproducerede enheder. Gemmes automatisk når du forlader feltet. Udfyldes inden du afslutter batchen."/>
+          </div>
           <input type="number" min="0" value={actualQty} onChange={e=>setActualQty(e.target.value)} onBlur={e=>saveActualQty(e.target.value)} placeholder="antal" style={{width:90}} disabled={selected.status==="completed"}/>
           <span style={{fontSize:12,color:T.dim}}>stk</span>
         </div>
@@ -385,7 +395,10 @@ function Batches({data,update,supabase}){
 
       {/* ─── 3. SPORBARHED ─── */}
       <div style={{borderTop:`1px solid ${T.brdL}`,paddingTop:16,marginBottom:16}}>
-        <div style={{fontSize:10,fontWeight:700,color:T.dim,textTransform:"uppercase",letterSpacing:".1em",marginBottom:12}}>3 · Sporbarhed</div>
+        <div style={{display:"flex",alignItems:"center",marginBottom:12}}>
+          <div style={{fontSize:10,fontWeight:700,color:T.dim,textTransform:"uppercase",letterSpacing:".1em"}}>3 · Sporbarhed</div>
+          <Tip text="Sporbarhed dokumenterer hvilke råvarelots der gik ind i denne batch. Påkrævet ved fødevarekontrol og tilbagekaldelser. Tidslinje og GS1-stregkoder tilføjes i kommende faser."/>
+        </div>
 
         <div style={{fontSize:11,fontWeight:600,color:T.mid,marginBottom:6}}>Råvarer brugt</div>
         {lotUsage.length===0?<div style={{fontSize:12,color:T.dim,marginBottom:10}}>Ingen råvarer registreret endnu</div>:lotUsage.map(u=><div key={u.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:12,padding:"5px 0",borderBottom:`1px solid ${T.brdL}`}}><div><span style={{fontWeight:500}}>{u.lots?.lot_number||u.lot_id}</span><span style={{color:T.dim,marginLeft:8}}>{data.inventory.find(i=>i.id===u.lots?.item_id)?.name||u.lots?.item_id||u.item_id}</span></div><span style={{fontFamily:T.fm,color:T.acc}}>{u.qty_used} {u.unit}</span></div>)}
