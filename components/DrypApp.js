@@ -348,7 +348,7 @@ function Batches({data,update,supabase}){
         {selected.status==="in_progress"&&<div style={{display:"flex",gap:8,alignItems:"center",marginTop:12}}>
           <select value={newLot.lotId} onChange={e=>setNewLot({...newLot,lotId:e.target.value})} style={{flex:2}}>
             <option value="">Vælg lot...</option>
-            {activeLots.map(l=><option key={l.id} value={l.id}>{l.lot_number} — {data.inventory.find(i=>i.id===l.item_id)?.name||l.item_id} ({l.qty_remaining} {l.unit})</option>)}
+            {activeLots.filter(l=>(selected.recipe_snapshot?.bom||[]).map(b=>b.itemId).includes(l.item_id)).map(l=><option key={l.id} value={l.id}>{l.lot_number} — {data.inventory.find(i=>i.id===l.item_id)?.name||l.item_id} ({l.qty_remaining} {l.unit})</option>)}
           </select>
           <input type="number" step=".01" min="0" value={newLot.qtyUsed} onChange={e=>setNewLot({...newLot,qtyUsed:e.target.value})} placeholder="Antal" style={{flex:1}}/>
           <Btn small primary disabled={savingLot||!newLot.lotId||!newLot.qtyUsed} onClick={addLotUsage}>+ Tilføj</Btn>
