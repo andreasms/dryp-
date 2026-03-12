@@ -26,7 +26,9 @@ const defaults = {
   haccp: { cleaning: [], temps: [], deviations: [], receiving: [], maintenance: [] },
   prices: { retail250: 129, wholesale250: 71, retail500: 219, wholesale500: 120, overhead: 500 },
   emails: [],
+  inbox: [],
   documents: [],
+  docFolders: ["Generelt", "Opskrifter", "HACCP", "Leverandører"],
   team: {
     pages: [{ id: "welcome", title: "Velkommen til DRYP", content: "Her kan teamet skrive noter, mødereferater, idéer og planer.\n\nBrug + knappen til at oprette nye sider.", updated: new Date().toISOString().slice(0, 10), author: "Andreas" }],
     messages: []
