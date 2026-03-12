@@ -1,5 +1,6 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
+import { createBatch } from '@/lib/db/batches'
 
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,6)
 const today=()=>new Date().toISOString().slice(0,10)
@@ -209,11 +210,11 @@ function Recipes({data,update}){
 }
 
 // ═══ PRODUCTION ═══
-function Production({data,update}){
+function Production({data,update,supabase}){
   const[show,setShow]=useState(false);const[form,setForm]=useState({});const[exp,setExp]=useState(null)
   const recipes=(data.recipes||[]).filter(r=>r.active)
   const startNew=()=>{const r=recipes[0];setForm({id:uid(),recipeId:r?.id||"",recipeName:r?.name||"",batchId:`DRYP-${today().replace(/-/g,"").slice(2)}-${String(data.productions.length+1).padStart(3,"0")}`,date:today(),operator:"Andreas",rapsolieQty:"",rapsolieLot:"",dildQty:"",volume:"",bottles250:"",bottles500:"",ccp1TempStart:"",ccp1TempEnd:"",infusionTime:r?.infusionTime||"",ccp1Ok:false,ccp2Visual:false,ccp2Ok:false,cleaningDone:false,hygieneDone:false,tempStorage:"",notes:""});setShow(true)}
-  const doSave=()=>{update("productions",prev=>[form,...prev.filter(p=>p.id!==form.id)]);if(!data.batches.find(b=>b.id===form.batchId))update("batches",prev=>[{id:form.batchId,created:form.date,recipeId:form.recipeId,recipeName:form.recipeName,rapsolieOrigin:"Dansk",status:"produceret",bestBefore:addDays(form.date,recipes.find(r=>r.id===form.recipeId)?.shelfLifeDays||90),notes:"",gtin:"",gs1Note:""},...prev]);setShow(false)}
+  const doSave=()=>{update("productions",prev=>[form,...prev.filter(p=>p.id!==form.id)]);if(!data.batches.find(b=>b.id===form.batchId))update("batches",prev=>[{id:form.batchId,created:form.date,recipeId:form.recipeId,recipeName:form.recipeName,rapsolieOrigin:"Dansk",status:"produceret",bestBefore:addDays(form.date,recipes.find(r=>r.id===form.recipeId)?.shelfLifeDays||90),notes:"",gtin:"",gs1Note:""},...prev]);createBatch(supabase,{batch_number:form.batchId,recipe_id:form.recipeId,recipe_snapshot:recipes.find(r=>r.id===form.recipeId)||{},status:"draft",planned_date:form.date,operator:form.operator,planned_qty:(parseInt(form.bottles250)||0)+(parseInt(form.bottles500)||0)}).catch(err=>console.error("[DRYP] createBatch failed:",err));setShow(false)}
   return<div style={{maxWidth:960}}>
     <SH title="Produktionslog" desc="Registrer produktioner med HACCP CCP1+CCP2" tip="Hver produktion logges med temperaturkontrol (CCP1: infusion) og forseglingskontrol (CCP2). Opretter automatisk en batch."><Btn primary onClick={startNew}><Plus s={12} c={T.bg}/> Ny produktion</Btn></SH>
     {data.productions.length===0?<Empty text="Ingen produktioner endnu" action="Start produktion" onAction={startNew}/>:
