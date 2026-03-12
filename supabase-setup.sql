@@ -116,3 +116,251 @@ create trigger team_data_updated_at
 -- for app_data, og alle 3 brugere deler data.
 -- ═══════════════════════════════════════════
 
+
+-- ═══════════════════════════════════════════
+-- DRYP Phase 1 Migration
+-- Batch-centret produktion, lot-tracking,
+-- lagerbevægelser og batch-tidslinje
+-- Kør dette i Supabase SQL Editor EFTER
+-- det originale setup-script ovenfor
+-- ═══════════════════════════════════════════
+
+
+-- ───────────────────────────────────────────
+-- BATCHES
+-- Central produktionsenhed. recipe_snapshot
+-- fryser opskriften på produktionstidspunktet
+-- så ændringer aldrig rammer historiske poster.
+-- ───────────────────────────────────────────
+create table if not exists batches (
+  id               uuid        primary key default gen_random_uuid(),
+  user_id          uuid        not null references auth.users(id) on delete cascade,
+  batch_number     text        not null,
+  recipe_id        text        not null,
+  recipe_snapshot  jsonb       not null,
+  status           text        not null default 'planned'
+                               check (status in ('planned','in_progress','completed','failed','recalled')),
+  planned_qty      integer,
+  actual_qty       integer,
+  planned_date     date,
+  started_at       timestamptz,
+  completed_at     timestamptz,
+  operator         text,
+  notes            text,
+  created_at       timestamptz not null default now(),
+  updated_at       timestamptz not null default now()
+);
+
+create index if not exists batches_user_id_idx      on batches (user_id);
+create index if not exists batches_status_idx       on batches (user_id, status);
+create index if not exists batches_planned_date_idx on batches (user_id, planned_date desc);
+
+create trigger batches_updated_at
+  before update on batches
+  for each row
+  execute function update_updated_at();
+
+
+-- ───────────────────────────────────────────
+-- LOTS
+-- Indgående råvarelots. qty_remaining opdateres
+-- ved forbrug via inventory_movements.
+-- ───────────────────────────────────────────
+create table if not exists lots (
+  id               uuid        primary key default gen_random_uuid(),
+  user_id          uuid        not null references auth.users(id) on delete cascade,
+  item_id          text        not null,
+  lot_number       text        not null,
+  supplier         text,
+  received_date    date,
+  expiry_date      date,
+  qty_received     numeric     not null check (qty_received > 0),
+  qty_remaining    numeric     not null check (qty_remaining >= 0),
+  unit             text        not null,
+  cost_per_unit    numeric     check (cost_per_unit >= 0),
+  certificate_ref  text,
+  notes            text,
+  created_at       timestamptz not null default now(),
+  constraint lots_remaining_lte_received check (qty_remaining <= qty_received)
+);
+
+create index if not exists lots_user_id_idx   on lots (user_id);
+create index if not exists lots_item_id_idx   on lots (user_id, item_id);
+create index if not exists lots_expiry_idx    on lots (user_id, expiry_date);
+
+
+-- ───────────────────────────────────────────
+-- INVENTORY_MOVEMENTS
+-- Uforanderlig lagerbevægelseskladde.
+-- Rækker må aldrig opdateres eller slettes.
+-- Aktuel beholdning = SUM(qty) per item_id.
+-- ───────────────────────────────────────────
+create table if not exists inventory_movements (
+  id               uuid        primary key default gen_random_uuid(),
+  user_id          uuid        not null references auth.users(id) on delete cascade,
+  item_id          text        not null,
+  lot_id           uuid        references lots(id),
+  batch_id         uuid        references batches(id),
+  movement_type    text        not null
+                               check (movement_type in ('receipt','consumption','adjustment','waste','return','produce')),
+  qty              numeric     not null,
+  unit             text        not null,
+  reference        text,
+  notes            text,
+  created_at       timestamptz not null default now(),
+  created_by       text
+);
+
+create index if not exists movements_user_id_idx  on inventory_movements (user_id);
+create index if not exists movements_item_id_idx  on inventory_movements (user_id, item_id);
+create index if not exists movements_batch_id_idx on inventory_movements (batch_id);
+create index if not exists movements_lot_id_idx   on inventory_movements (lot_id);
+create index if not exists movements_created_idx  on inventory_movements (user_id, created_at desc);
+
+
+-- ───────────────────────────────────────────
+-- BATCH_EVENTS
+-- Tidslinjepost per batch. Append-only.
+-- Bruges til HACCP-dokumentation og audit.
+-- ───────────────────────────────────────────
+create table if not exists batch_events (
+  id               uuid        primary key default gen_random_uuid(),
+  batch_id         uuid        not null references batches(id) on delete cascade,
+  user_id          uuid        not null references auth.users(id) on delete cascade,
+  event_type       text        not null
+                               check (event_type in (
+                                 'created','started','step_completed',
+                                 'ccp_recorded','completed','deviation',
+                                 'note','recalled'
+                               )),
+  step_index       integer,
+  payload          jsonb,
+  created_at       timestamptz not null default now(),
+  created_by       text
+);
+
+create index if not exists batch_events_batch_id_idx on batch_events (batch_id, created_at asc);
+create index if not exists batch_events_user_id_idx  on batch_events (user_id);
+
+
+-- ───────────────────────────────────────────
+-- BATCH_LOT_USAGE
+-- Kobler batches til de specifikke lots der
+-- blev forbrugt. Grundlag for sporbarhed.
+-- ───────────────────────────────────────────
+create table if not exists batch_lot_usage (
+  id               uuid        primary key default gen_random_uuid(),
+  batch_id         uuid        not null references batches(id) on delete cascade,
+  lot_id           uuid        not null references lots(id),
+  item_id          text        not null,
+  qty_used         numeric     not null check (qty_used > 0),
+  unit             text        not null,
+  created_at       timestamptz not null default now()
+);
+
+create index if not exists batch_lot_usage_batch_id_idx on batch_lot_usage (batch_id);
+create index if not exists batch_lot_usage_lot_id_idx   on batch_lot_usage (lot_id);
+
+
+-- ───────────────────────────────────────────
+-- ROW LEVEL SECURITY
+-- ───────────────────────────────────────────
+alter table batches              enable row level security;
+alter table lots                 enable row level security;
+alter table inventory_movements  enable row level security;
+alter table batch_events         enable row level security;
+alter table batch_lot_usage      enable row level security;
+
+-- batches
+create policy "Users can view own batches"
+  on batches for select
+  using (auth.uid() = user_id);
+
+create policy "Users can insert own batches"
+  on batches for insert
+  with check (auth.uid() = user_id);
+
+create policy "Users can update own batches"
+  on batches for update
+  using (auth.uid() = user_id);
+
+-- lots
+create policy "Users can view own lots"
+  on lots for select
+  using (auth.uid() = user_id);
+
+create policy "Users can insert own lots"
+  on lots for insert
+  with check (auth.uid() = user_id);
+
+create policy "Users can update own lots"
+  on lots for update
+  using (auth.uid() = user_id);
+
+-- inventory_movements (insert-only from client; no update/delete policies)
+create policy "Users can view own movements"
+  on inventory_movements for select
+  using (auth.uid() = user_id);
+
+create policy "Users can insert own movements"
+  on inventory_movements for insert
+  with check (auth.uid() = user_id);
+
+-- batch_events (insert-only from client; no update/delete policies)
+create policy "Users can view own batch events"
+  on batch_events for select
+  using (auth.uid() = user_id);
+
+create policy "Users can insert own batch events"
+  on batch_events for insert
+  with check (auth.uid() = user_id);
+
+-- batch_lot_usage — access controlled via batch ownership
+create policy "Users can view own batch lot usage"
+  on batch_lot_usage for select
+  using (
+    exists (
+      select 1 from batches b
+      where b.id = batch_lot_usage.batch_id
+        and b.user_id = auth.uid()
+    )
+  );
+
+create policy "Users can insert own batch lot usage"
+  on batch_lot_usage for insert
+  with check (
+    exists (
+      select 1 from batches b
+      where b.id = batch_lot_usage.batch_id
+        and b.user_id = auth.uid()
+    )
+  );
+
+
+-- ───────────────────────────────────────────
+-- HELPER VIEWS
+-- ───────────────────────────────────────────
+
+-- Aktuel beholdning per item beregnet fra bevægelseskladden
+create or replace view stock_levels as
+  select
+    user_id,
+    item_id,
+    sum(qty)              as current_qty,
+    count(*)              as movement_count,
+    max(created_at)       as last_movement_at
+  from inventory_movements
+  group by user_id, item_id;
+
+-- Aktive lots (qty_remaining > 0) med udløbsadvarsel
+create or replace view active_lots as
+  select
+    *,
+    (expiry_date - current_date)  as days_until_expiry,
+    case
+      when expiry_date < current_date              then 'expired'
+      when expiry_date <= current_date + interval '30 days' then 'expiring_soon'
+      else 'ok'
+    end                           as expiry_status
+  from lots
+  where qty_remaining > 0;
