@@ -12,6 +12,8 @@ const addDays=(d,n)=>{const x=new Date(d);x.setDate(x.getDate()+n);return x.toIS
 
 // ═══ THEME — bigger fonts, better readability ═══
 const T={bg:"#0f1a0b",card:"#1a2814",card2:"#1f3318",input:"#0d150a",brd:"#2d4a22",brdL:"#1f3318",acc:"#a8d870",accD:"rgba(168,216,112,0.15)",accDD:"rgba(168,216,112,0.08)",txt:"#e8f0d8",mid:"rgba(232,240,216,0.65)",dim:"rgba(232,240,216,0.35)",red:"#e85454",warn:"#e8b854",ok:"#54c878",fm:"'JetBrains Mono','SF Mono',monospace",fs:13.5}
+const statusDa={planned:"Planlagt",in_progress:"I gang",completed:"Afsluttet",failed:"Fejlet",recalled:"Tilbagekaldt"}
+const statusC={planned:T.acc,in_progress:T.warn,completed:T.ok,failed:T.red,recalled:T.red}
 
 // ═══ UI COMPONENTS ═══
 const Plus=({s=13,c="currentColor"})=><svg width={s} height={s} viewBox="0 0 16 16" fill="none" stroke={c} strokeWidth="2.5" strokeLinecap="round"><line x1="8" y1="3" x2="8" y2="13"/><line x1="3" y1="8" x2="13" y2="8"/></svg>
@@ -49,7 +51,7 @@ export default function DrypApp({data,update,save,user,onLogout,supabase}){
     {id:"dashboard",l:"Overblik",i:"◻"},
     {id:"recipes",l:"Opskrifter",i:"◉"},
     {id:"production",l:"Produktion",i:"⬡"},
-    {id:"batches",l:"Batches & GS1",i:"⬢"},
+    {id:"batches",l:"Batches",i:"⬢"},
     {id:"_hd2",l:"KVALITET & LAGER",hd:true},
     {id:"haccp",l:"HACCP Logs",i:"✓"},
     {id:"inventory",l:"Lager",i:"▦"},
@@ -92,16 +94,18 @@ export default function DrypApp({data,update,save,user,onLogout,supabase}){
 }
 
 // ═══ DASHBOARD — cleaner, priority-focused ═══
-function Dashboard({data}){
+function Dashboard({data,supabase}){
   const mo=today().slice(0,7);const prods=data.productions.filter(p=>p.date?.startsWith(mo))
   const rev=data.orders.filter(o=>o.date?.startsWith(mo)).reduce((s,o)=>s+(parseFloat(o.price)||0)*(parseInt(o.qty)||0),0)
   const low=data.inventory.filter(i=>i.qty<i.min)
   const ccpOk=prods.filter(p=>p.ccp1Ok&&p.ccp2Ok).length
   const openDevs=(data.haccp?.deviations||[]).filter(d=>!d.closedDate)
   const pendingOrders=(data.orders||[]).filter(o=>o.status==="bestilt")
+  const[sqlStats,setSqlStats]=useState(null)
+  useEffect(()=>{if(!supabase)return;getBatches(supabase).then(rows=>{if(rows)setSqlStats({active:rows.filter(b=>b.status==="in_progress").length,planned:rows.filter(b=>b.status==="planned").length,total:rows.length})}).catch(()=>{})},[supabase])
   return<div style={{maxWidth:1100}}>
     <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:24}}>
-      <Stat label="Produktioner" value={prods.length} sub={`${prods.reduce((s,p)=>s+(parseFloat(p.volume)||0),0).toFixed(1)}L denne måned`} tip="Antal produktioner registreret denne kalendermåned"/>
+      <Stat label="Batches i gang" value={sqlStats?.active??"—"} c={sqlStats?.active>0?T.warn:T.dim} sub={sqlStats!=null?`${sqlStats.planned} planlagt · ${sqlStats.total} total`:"Indlæser..."} tip="Batches med status 'I gang' — aktiv produktion akkurat nu. Klik 'Batches' i menuen for at arbejde med dem."/>
       <Stat label="Omsætning" value={fk(rev)} c={rev>0?T.ok:T.dim} sub="Denne måned" tip="Samlet ordreværdi for indeværende måned"/>
       <Stat label="CCP status" value={prods.length?`${Math.round(ccpOk/prods.length*100)}%`:"—"} c={ccpOk===prods.length&&prods.length>0?T.ok:T.warn} sub={`${ccpOk}/${prods.length} godkendt`} tip="Andel produktioner med godkendt CCP1 (temperatur) og CCP2 (forsegling)"/>
       <Stat label="Lager-alarm" value={low.length} c={low.length>0?T.red:T.ok} sub={low.length?low.map(i=>i.name).join(", "):"Alt over minimum"} tip="Varer under minimumsbeholdning"/>
@@ -262,6 +266,7 @@ function Production({data,update,supabase}){
 // ═══ BATCHES with GS1 ═══
 function Batches({data,update,supabase}){
   const[show,setShow]=useState(false);const[form,setForm]=useState({})
+  const[showGs1,setShowGs1]=useState(false)
   const[sqlBatches,setSqlBatches]=useState(null)
   const[selectedId,setSelectedId]=useState(null)
   const[acting,setActing]=useState(false)
@@ -317,27 +322,36 @@ function Batches({data,update,supabase}){
   }
 
   return<div style={{maxWidth:960}}>
-    <SH title="Batches & GS1" desc="Sporbarhed og stregkode-forberedelse" tip="Hver batch har et unikt ID til sporbarhed. GTIN-feltet er klar til når I får GS1 medlemskab — så kan I linke batches direkte til stregkoder."><Btn primary onClick={()=>{setForm({id:`DRYP-${today().replace(/-/g,"").slice(2)}-${String(data.batches.length+1).padStart(3,"0")}`,created:today(),recipeName:"",rapsolieOrigin:"Dansk",status:"produceret",bestBefore:"",notes:"",gtin:"",gs1Note:""});setShow(true)}}><Plus s={12} c={T.bg}/> Ny batch</Btn></SH>
+    <SH title="Batches" desc="Klik på en batch for at se detaljer, starte eller afslutte produktion" tip="Hver batch repræsenterer én produktionskørsel. Start en batch, registrér råvarer, og afslut den når produktionen er godkendt."><Btn primary onClick={()=>{setForm({id:`DRYP-${today().replace(/-/g,"").slice(2)}-${String(data.batches.length+1).padStart(3,"0")}`,created:today(),recipeName:"",rapsolieOrigin:"Dansk",status:"produceret",bestBefore:"",notes:"",gtin:"",gs1Note:""});setShow(true)}}><Plus s={12} c={T.bg}/> Ny batch</Btn></SH>
 
-    <Card style={{marginBottom:16,background:T.accDD,border:`1px solid ${T.acc}33`}}>
-      <div style={{fontSize:13,fontWeight:600,marginBottom:6}}>📊 GS1 / Stregkode</div>
-      <div style={{fontSize:12,color:T.mid,lineHeight:1.6}}>Når I får GS1 Danmark medlemskab, tildeles I et firma-præfiks (typisk 5790xxxxxxx). Hvert produkt får et GTIN-13 nummer som kan printes som EAN-stregkode. Udfyld GTIN-feltet på batches for at koble produktion til stregkoder.</div>
-    </Card>
+    <div style={{marginBottom:14}}>
+      <button onClick={()=>setShowGs1(!showGs1)} style={{background:"none",fontSize:12,color:T.dim,cursor:"pointer",display:"flex",alignItems:"center",gap:6,padding:"4px 0"}}>
+        <span style={{fontSize:10}}>{showGs1?"▼":"▶"}</span> GS1 / Stregkode-info
+      </button>
+      {showGs1&&<div style={{marginTop:8,padding:"12px 14px",background:T.accDD,borderRadius:10,border:`1px solid ${T.acc}33`,fontSize:12,color:T.mid,lineHeight:1.6}}>Når I får GS1 Danmark-medlemskab tildeles I et firma-præfiks (typisk 5790xxxxxxx). Hvert produkt får et GTIN-13 nummer som kan printes som EAN-stregkode. Udfyld GTIN-feltet på batches for at koble produktion til stregkoder.</div>}
+    </div>
 
-    {batches.length===0?<Empty text="Ingen batches"/>:[...batches].sort((a,b)=>((isSql?b.planned_date:b.created)||"").localeCompare((isSql?a.planned_date:a.created)||"")).map(b=><Card key={b.id||b.batch_number} onClick={isSql?()=>setSelectedId(b.id):undefined} style={{marginBottom:8,padding:14,cursor:isSql?"pointer":"default"}}>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-        <div>
-          <div style={{fontSize:14,fontWeight:600}}>{isSql?b.batch_number:b.id}</div>
-          <div style={{fontSize:12,color:T.dim}}>{isSql?(b.recipe_snapshot?.name||b.recipe_id||"—"):(b.recipeName||"—")} · {isSql?b.planned_date:b.created}{!isSql&&b.bestBefore&&` · Holdbar til: ${b.bestBefore}`}</div>
-          {isSql&&b.operator&&<div style={{fontSize:11,color:T.mid,marginTop:2}}>Operatør: {b.operator}{b.planned_qty?` · Planlagt: ${b.planned_qty} stk`:""}</div>}
-          {!isSql&&b.gtin&&<div style={{fontSize:11,color:T.acc,fontFamily:T.fm,marginTop:2}}>GTIN: {b.gtin}</div>}
-        </div>
-        <div style={{display:"flex",gap:6,alignItems:"center"}}>
-          <Badge c={{planned:T.acc,in_progress:T.warn,completed:T.ok,failed:T.red,recalled:T.red,produceret:T.acc,lagret:T.warn,frigivet:T.ok,afsluttet:T.dim}[b.status]||T.dim}>{b.status}</Badge>
-          {!isSql&&<><Btn small onClick={e=>{e.stopPropagation();setForm({...b,gtin:b.gtin||"",gs1Note:b.gs1Note||""});setShow(true)}}>✎</Btn><Btn small danger onClick={e=>{e.stopPropagation();if(confirm("Slet?"))update("batches",prev=>prev.filter(x=>x.id!==b.id))}}>✕</Btn></>}
-        </div>
-      </div>
-    </Card>)}
+    {batches.length===0
+      ?<Empty text="Ingen batches endnu" action="Opret batch manuelt" onAction={()=>{setForm({id:`DRYP-${today().replace(/-/g,"").slice(2)}-001`,created:today(),recipeName:"",rapsolieOrigin:"Dansk",status:"produceret",bestBefore:"",notes:"",gtin:"",gs1Note:""});setShow(true)}}/>
+      :[...batches].sort((a,b)=>((isSql?b.planned_date:b.created)||"").localeCompare((isSql?a.planned_date:a.created)||"")).map(b=>{
+        const bStatusC=statusC[b.status]||{produceret:T.acc,lagret:T.warn,frigivet:T.ok,afsluttet:T.dim}[b.status]||T.dim
+        const bStatusL=statusDa[b.status]||b.status
+        return<Card key={b.id||b.batch_number} onClick={isSql?()=>setSelectedId(b.id):undefined} style={{marginBottom:8,padding:14,cursor:isSql?"pointer":"default",borderLeft:isSql?`4px solid ${b.status==="in_progress"?T.warn:b.status==="planned"?T.acc:b.status==="completed"?T.ok:T.brd}`:`4px solid ${T.brd}`}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <div>
+              <div style={{fontSize:14,fontWeight:600}}>{isSql?b.batch_number:b.id}</div>
+              <div style={{fontSize:12,color:T.dim}}>{isSql?(b.recipe_snapshot?.name||b.recipe_id||"—"):(b.recipeName||"—")} · {isSql?b.planned_date:b.created}{!isSql&&b.bestBefore&&` · Holdbar til: ${b.bestBefore}`}</div>
+              {isSql&&b.operator&&<div style={{fontSize:11,color:T.mid,marginTop:2}}>Operatør: {b.operator}{b.planned_qty?` · Planlagt: ${b.planned_qty} stk`:""}</div>}
+              {!isSql&&b.gtin&&<div style={{fontSize:11,color:T.acc,fontFamily:T.fm,marginTop:2}}>GTIN: {b.gtin}</div>}
+            </div>
+            <div style={{display:"flex",gap:8,alignItems:"center"}}>
+              <Badge c={bStatusC}>{bStatusL}</Badge>
+              {!isSql&&<><Btn small onClick={e=>{e.stopPropagation();setForm({...b,gtin:b.gtin||"",gs1Note:b.gs1Note||""});setShow(true)}}>✎</Btn><Btn small danger onClick={e=>{e.stopPropagation();if(confirm("Slet?"))update("batches",prev=>prev.filter(x=>x.id!==b.id))}}>✕</Btn></>}
+              {isSql&&<span style={{color:T.dim,fontSize:20,lineHeight:1}}>›</span>}
+            </div>
+          </div>
+        </Card>
+      })}
 
     {selected&&<Modal title={`Batch · ${selected.batch_number}`} onClose={()=>setSelectedId(null)} wide>
 
@@ -345,8 +359,8 @@ function Batches({data,update,supabase}){
       <div style={{fontSize:10,fontWeight:700,color:T.dim,textTransform:"uppercase",letterSpacing:".1em",marginBottom:12}}>1 · Overblik</div>
       <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
         <div style={{fontSize:18,fontWeight:700,fontFamily:T.fm}}>{selected.batch_number}</div>
-        <Badge c={{planned:T.acc,in_progress:T.warn,completed:T.ok,failed:T.red,recalled:T.red}[selected.status]||T.dim}>{selected.status}</Badge>
-        <Tip text={"planned: Batch oprettet, produktion ikke startet.\nin_progress: Produktion i gang — registrér råvarer og faktisk antal.\ncompleted: Produktion afsluttet og godkendt."}/>
+        <Badge c={statusC[selected.status]||T.dim}>{statusDa[selected.status]||selected.status}</Badge>
+        <Tip text="Planlagt: Batch oprettet, produktion ikke startet.\nI gang: Produktion kører — registrér råvarer og faktisk antal nedenfor.\nAfsluttet: Produktion godkendt og lukket."/>
       </div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"8px 24px",fontSize:12,marginBottom:22}}>
         {[["Opskrift",selected.recipe_snapshot?.name||selected.recipe_id||"—"],["Operatør",selected.operator||"—"],["Planlagt antal",selected.planned_qty?`${selected.planned_qty} stk`:"—"],["Planlagt dato",selected.planned_date||"—"]].map(([k,v])=><div key={k}><div style={{fontSize:10,color:T.dim,textTransform:"uppercase",letterSpacing:".05em",marginBottom:3}}>{k}</div><div style={{fontWeight:500}}>{v}</div></div>)}
@@ -372,13 +386,21 @@ function Batches({data,update,supabase}){
           </div>
           {activeLots.filter(l=>(selected.recipe_snapshot?.bom||[]).map(b=>b.itemId).includes(l.item_id)).length===0
             ?<div style={{fontSize:12,color:T.warn,marginBottom:16,padding:"8px 12px",background:T.input,borderRadius:8}}>Ingen relevante lots fundet endnu. Opret et lot i Lager for at registrere råvareforbrug.</div>
-            :<div style={{display:"flex",gap:8,alignItems:"center",marginBottom:16}}>
-              <select value={newLot.lotId} onChange={e=>setNewLot({...newLot,lotId:e.target.value})} style={{flex:2}}>
-                <option value="">Vælg lot...</option>
-                {activeLots.filter(l=>(selected.recipe_snapshot?.bom||[]).map(b=>b.itemId).includes(l.item_id)).map(l=><option key={l.id} value={l.id}>{l.lot_number} — {data.inventory.find(i=>i.id===l.item_id)?.name||l.item_id} ({l.qty_remaining} {l.unit})</option>)}
-              </select>
-              <input type="number" step=".01" min="0" value={newLot.qtyUsed} onChange={e=>setNewLot({...newLot,qtyUsed:e.target.value})} placeholder="Antal" style={{flex:1}}/>
-              <Btn small primary disabled={savingLot||!newLot.lotId||!newLot.qtyUsed} onClick={addLotUsage}>+ Tilføj</Btn>
+            :<div style={{marginBottom:16}}>
+              <div style={{display:"flex",gap:10,alignItems:"flex-end",flexWrap:"wrap"}}>
+                <div style={{flex:"2 1 180px"}}>
+                  <div style={{fontSize:11,color:T.dim,marginBottom:4,fontWeight:600,letterSpacing:".04em",textTransform:"uppercase"}}>Lot</div>
+                  <select value={newLot.lotId} onChange={e=>setNewLot({...newLot,lotId:e.target.value})} style={{width:"100%"}}>
+                    <option value="">Vælg lot...</option>
+                    {activeLots.filter(l=>(selected.recipe_snapshot?.bom||[]).map(b=>b.itemId).includes(l.item_id)).map(l=><option key={l.id} value={l.id}>{l.lot_number} · {data.inventory.find(i=>i.id===l.item_id)?.name||l.item_id} · {l.qty_remaining} {l.unit} tilbage</option>)}
+                  </select>
+                </div>
+                <div style={{flex:"1 1 100px"}}>
+                  <div style={{fontSize:11,color:T.dim,marginBottom:4,fontWeight:600,letterSpacing:".04em",textTransform:"uppercase"}}>Mængde{activeLots.find(l=>l.id===newLot.lotId)?.unit&&<span style={{color:T.acc,marginLeft:4,textTransform:"none"}}>({activeLots.find(l=>l.id===newLot.lotId).unit})</span>}</div>
+                  <input type="number" step=".01" min="0" value={newLot.qtyUsed} onChange={e=>setNewLot({...newLot,qtyUsed:e.target.value})} style={{width:"100%"}}/>
+                </div>
+                <Btn primary disabled={savingLot||!newLot.lotId||!newLot.qtyUsed} onClick={addLotUsage} style={{padding:"10px 18px"}}>{savingLot?"Gemmer...":"+ Registrér"}</Btn>
+              </div>
             </div>
           }
         </>}
@@ -403,8 +425,7 @@ function Batches({data,update,supabase}){
         <div style={{fontSize:11,fontWeight:600,color:T.mid,marginBottom:6}}>Råvarer brugt</div>
         {lotUsage.length===0?<div style={{fontSize:12,color:T.dim,marginBottom:10}}>Ingen råvarer registreret endnu</div>:lotUsage.map(u=><div key={u.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:12,padding:"5px 0",borderBottom:`1px solid ${T.brdL}`}}><div><span style={{fontWeight:500}}>{u.lots?.lot_number||u.lot_id}</span><span style={{color:T.dim,marginLeft:8}}>{data.inventory.find(i=>i.id===u.lots?.item_id)?.name||u.lots?.item_id||u.item_id}</span></div><span style={{fontFamily:T.fm,color:T.acc}}>{u.qty_used} {u.unit}</span></div>)}
 
-        <div style={{marginTop:12,padding:"10px 12px",background:T.input,borderRadius:8,fontSize:12,color:T.dim,marginBottom:6}}>Tidslinje — tilføjes i næste fase</div>
-        <div style={{padding:"10px 12px",background:T.input,borderRadius:8,fontSize:12,color:T.dim}}>GS1 / GTIN — aktiveres ved GS1 Danmark-medlemskab</div>
+        {lotUsage.length>0&&<div style={{marginTop:10,fontSize:11,color:T.dim,fontStyle:"italic",paddingTop:6,borderTop:`1px solid ${T.brdL}`}}>Produktionstidslinje og GS1/GTIN-stregkode tilknyttes i næste version af sporbarhedsmodulet</div>}
       </div>
 
       <div style={{display:"flex",justifyContent:"flex-end"}}>
@@ -498,13 +519,13 @@ function Inventory({data,update,supabase}){
   }
 
   return<div style={{maxWidth:960}}>
-    <SH title="Lagerbeholdning" desc="Klik på antal for hurtig-edit" tip="Her styrer du al lagerbeholdning. Klik direkte på tallet for hurtig ændring, eller ✎ for alle detaljer. Lagerstatus påvirker indkøbsplanen automatisk.">
+    <SH title="Lagerbeholdning" desc="Varer og råvare-lots — klik på antal for hurtig-edit" tip="Her registreres to ting: 1) Lagervarer — de faste varer med minimumsbeholdning. 2) Lots — specifikke leverancer af råvarer med lottnummer og mængde. Lots bruges til sporbarhed i Batches.">
       <div style={{display:"flex",gap:8}}>
         <Btn onClick={()=>{if(rawItems.length===0){alert("Opret en råvare i lagerbeholdningen først.");return}setLotForm({item_id:rawItems[0]?.id||"",lot_number:"",supplier:"",qty_received:"",received_date:"",expiry_date:""});setShowLot(true)}}><Plus s={12} c={T.txt}/> Opret lot</Btn>
         <Btn primary onClick={()=>{setForm({id:uid(),name:"",unit:"stk",qty:0,min:0,cat:"Råvare",leadDays:7,supplier:"",costPer:0});setShow(true)}}><Plus s={12} c={T.bg}/> Tilføj vare</Btn>
       </div>
     </SH>
-    {cats.map(cat=><div key={cat} style={{marginBottom:22}}><div style={{fontSize:11,fontWeight:700,color:T.dim,letterSpacing:".1em",textTransform:"uppercase",marginBottom:10,paddingBottom:4,borderBottom:`1px solid ${T.brdL}`}}>{cat}</div>
+    {cats.map(cat=><div key={cat} style={{marginBottom:22}}><div style={{fontSize:11,fontWeight:700,color:T.dim,letterSpacing:".1em",textTransform:"uppercase",marginBottom:10,paddingBottom:4,borderBottom:`1px solid ${T.brdL}`,display:"flex",alignItems:"center",justifyContent:"space-between"}}><span>{cat}</span>{cat==="Råvare"&&<span style={{fontSize:10,color:T.acc,fontWeight:500,letterSpacing:".02em",textTransform:"none"}}>Opret lots for at spore råvareforbrug i produktion</span>}</div>
       {data.inventory.filter(i=>i.cat===cat).map(item=>{const low=item.qty<item.min;return<Card key={item.id} style={{marginBottom:6,padding:12}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><div><div style={{fontSize:14,fontWeight:500}}>{low&&<span style={{color:T.red}}>⚠ </span>}{item.name}</div><div style={{fontSize:12,color:T.dim}}>Min: {item.min} · Lead: {item.leadDays}d{item.supplier&&` · ${item.supplier}`} · {fk(item.costPer)}/{item.unit}</div></div>
           <div style={{display:"flex",alignItems:"center",gap:10}}>{eId===item.id?<div style={{display:"flex",gap:4}}><input type="number" value={qv} onChange={e=>setQv(e.target.value)} style={{width:70}} autoFocus onKeyDown={e=>{if(e.key==="Enter"){update("inventory",p=>p.map(i=>i.id===item.id?{...i,qty:parseFloat(qv)||0}:i));setEId(null)}}}/><Btn small primary onClick={()=>{update("inventory",p=>p.map(i=>i.id===item.id?{...i,qty:parseFloat(qv)||0}:i));setEId(null)}}>✓</Btn></div>:<button onClick={()=>{setEId(item.id);setQv(String(item.qty))}} style={{background:"none",color:low?T.red:T.txt,cursor:"pointer"}}><span style={{fontSize:20,fontFamily:T.fm,fontWeight:700}}>{item.qty}</span><span style={{fontSize:11,color:T.dim,marginLeft:3}}>{item.unit}</span></button>}<Btn small onClick={()=>{setForm(item);setShow(true)}}>✎</Btn><Btn small danger onClick={()=>{if(confirm(`Slet "${item.name}"?`))update("inventory",p=>p.filter(x=>x.id!==item.id))}}>✕</Btn></div></div>
