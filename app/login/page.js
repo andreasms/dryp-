@@ -1,89 +1,99 @@
 'use client'
-import { useState, useEffect, useCallback } from 'react'
+import { useState } from 'react'
 import { createClient } from '@/lib/supabase'
-import DrypApp from '@/components/DrypApp'
 
-const defaults = {
-  recipes: [
-    { id: "dild-250", name: "Dild Olie 250ml", size: "250ml", active: true,
-      bom: [{ itemId: "r1", qty: 0.25, unit: "L" }, { itemId: "r2", qty: 0.02, unit: "kg" }, { itemId: "e1", qty: 1, unit: "stk" }, { itemId: "e3", qty: 1, unit: "stk" }, { itemId: "e4", qty: 1, unit: "stk" }],
-      steps: ["Modtag og kontroller råvarer", "Skyl og forbered dild", "Bland rapsolie og dild", "Infuser (CCP1)", "Filtrer", "Aftap i flasker", "Forsegl (CCP2)", "Etikettering", "Opbevaring"],
-      infusionTemp: "", infusionTime: "", shelfLifeDays: 90 },
-    { id: "dild-500", name: "Dild Olie 500ml", size: "500ml", active: true,
-      bom: [{ itemId: "r1", qty: 0.5, unit: "L" }, { itemId: "r2", qty: 0.04, unit: "kg" }, { itemId: "e2", qty: 1, unit: "stk" }, { itemId: "e3", qty: 1, unit: "stk" }, { itemId: "e4", qty: 1, unit: "stk" }],
-      steps: ["Modtag og kontroller råvarer", "Skyl og forbered dild", "Bland rapsolie og dild", "Infuser (CCP1)", "Filtrer", "Aftap i flasker", "Forsegl (CCP2)", "Etikettering", "Opbevaring"],
-      infusionTemp: "", infusionTime: "", shelfLifeDays: 90 },
-  ],
-  productions: [], batches: [], customers: [], orders: [],
-  inventory: [
-    { id: "r1", name: "Rapsolie (dansk)", unit: "L", qty: 0, min: 5, cat: "Råvare", leadDays: 7, supplier: "", costPer: 45 },
-    { id: "r2", name: "Frisk dild", unit: "kg", qty: 0, min: 1, cat: "Råvare", leadDays: 2, supplier: "", costPer: 80 },
-    { id: "e1", name: "Flasker 250ml", unit: "stk", qty: 0, min: 50, cat: "Emballage", leadDays: 14, supplier: "Hedenhus", costPer: 8.5 },
-    { id: "e2", name: "Flasker 500ml", unit: "stk", qty: 0, min: 20, cat: "Emballage", leadDays: 14, supplier: "Hedenhus", costPer: 12 },
-    { id: "e3", name: "Etiketter", unit: "stk", qty: 0, min: 50, cat: "Emballage", leadDays: 10, supplier: "", costPer: 3 },
-    { id: "e4", name: "Kapsler/låg", unit: "stk", qty: 0, min: 50, cat: "Emballage", leadDays: 14, supplier: "Hedenhus", costPer: 1.5 },
-  ],
-  haccp: { cleaning: [], temps: [], deviations: [], receiving: [], maintenance: [] },
-  prices: { retail250: 129, wholesale250: 71, retail500: 219, wholesale500: 120, overhead: 500 },
-  emails: [],
-  documents: [],
-  team: {
-    pages: [{ id: "welcome", title: "Velkommen til DRYP", content: "Her kan teamet skrive noter, mødereferater, idéer og planer.\n\nBrug + knappen til at oprette nye sider.", updated: new Date().toISOString().slice(0, 10), author: "Andreas" }],
-    messages: []
-  },
-}
-
-export default function Home() {
-  const [user, setUser] = useState(null)
-  const [data, setData] = useState(null)
-  const [loading, setLoading] = useState(true)
+export default function LoginPage() {
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [mode, setMode] = useState('login') // login or signup
   const supabase = createClient()
 
-  // Load user and data
-  useEffect(() => {
-    async function init() {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) { window.location.href = '/login'; return }
-      setUser(user)
+  const ALLOWED_EMAILS = (process.env.NEXT_PUBLIC_ALLOWED_EMAILS || '').split(',').map(e => e.trim().toLowerCase()).filter(Boolean)
 
-      // Load app data from Supabase
-      const { data: row } = await supabase
-        .from('app_data')
-        .select('data')
-        .eq('user_id', user.id)
-        .single()
+  async function handleSubmit(e) {
+    e.preventDefault()
+    setLoading(true)
+    setError('')
 
-      setData(row?.data || { ...defaults })
+    const emailLower = email.toLowerCase().trim()
+    if (ALLOWED_EMAILS.length > 0 && !ALLOWED_EMAILS.includes(emailLower)) {
+      setError('Denne email har ikke adgang til DRYP. Kontakt administrator.')
       setLoading(false)
+      return
     }
-    init()
-  }, [])
 
-  // Save function
-  const save = useCallback(async (newData) => {
-    setData(newData)
-    if (!user) return
-    await supabase
-      .from('app_data')
-      .upsert({ user_id: user.id, data: newData, updated_at: new Date().toISOString() })
-  }, [user, supabase])
-
-  const update = useCallback((key, value) => {
-    const newData = { ...data, [key]: typeof value === 'function' ? value(data[key]) : value }
-    save(newData)
-  }, [data, save])
-
-  const handleLogout = async () => {
-    await supabase.auth.signOut()
-    window.location.href = '/login'
+    if (mode === 'signup') {
+      const { error } = await supabase.auth.signUp({ email, password })
+      if (error) setError(error.message)
+      else setError('Tjek din email for bekræftelseslink!')
+    } else {
+      const { error } = await supabase.auth.signInWithPassword({ email, password })
+      if (error) setError('Forkert email eller password')
+      else window.location.href = '/'
+    }
+    setLoading(false)
   }
 
-  if (loading) return (
-    <div style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 12, background: '#0f1a0b' }}>
-      <div style={{ fontFamily: "'Archivo Black', sans-serif", fontSize: 32, color: '#a8d870', letterSpacing: '0.1em' }}>DRYP</div>
-      <div style={{ fontSize: 11, color: 'rgba(232,240,216,0.3)' }}>Indlæser...</div>
+  return (
+    <div style={{
+      height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
+      background: '#0f1a0b'
+    }}>
+      <div className="fade-in" style={{
+        background: '#1a2814', border: '1px solid #2d4a22', borderRadius: 16,
+        padding: 40, width: 360, textAlign: 'center'
+      }}>
+        <div style={{
+          fontFamily: "'Archivo Black', sans-serif", fontSize: 28,
+          color: '#a8d870', letterSpacing: '0.12em', marginBottom: 4
+        }}>DRYP</div>
+        <div style={{
+          fontSize: 10, color: 'rgba(232,240,216,0.3)',
+          letterSpacing: '0.15em', textTransform: 'uppercase', marginBottom: 32
+        }}>Sikker adgang · Skagen</div>
+
+        <form onSubmit={handleSubmit}>
+          <div style={{ marginBottom: 12 }}>
+            <input
+              type="email" value={email} onChange={e => setEmail(e.target.value)}
+              placeholder="Email" required
+              style={{ textAlign: 'center' }}
+            />
+          </div>
+          <div style={{ marginBottom: 16 }}>
+            <input
+              type="password" value={password} onChange={e => setPassword(e.target.value)}
+              placeholder="Password" required minLength={6}
+              style={{ textAlign: 'center' }}
+            />
+          </div>
+
+          {error && (
+            <div style={{
+              fontSize: 12, color: error.includes('Tjek') ? '#54c878' : '#e85454',
+              marginBottom: 12
+            }}>{error}</div>
+          )}
+
+          <button type="submit" disabled={loading} style={{
+            width: '100%', padding: '10px 0', borderRadius: 8,
+            background: '#a8d870', color: '#0f1a0b',
+            fontSize: 13, fontWeight: 700, letterSpacing: '0.04em',
+            opacity: loading ? 0.5 : 1
+          }}>
+            {loading ? '...' : mode === 'login' ? 'Log ind' : 'Opret konto'}
+          </button>
+        </form>
+
+        <button onClick={() => setMode(mode === 'login' ? 'signup' : 'login')} style={{
+          background: 'none', color: 'rgba(232,240,216,0.4)',
+          fontSize: 11, marginTop: 16, textDecoration: 'underline'
+        }}>
+          {mode === 'login' ? 'Opret ny konto' : 'Har allerede en konto? Log ind'}
+        </button>
+      </div>
     </div>
   )
-
-  return <DrypApp data={data} update={update} save={save} user={user} onLogout={handleLogout} supabase={supabase} />
 }
