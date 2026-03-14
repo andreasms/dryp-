@@ -125,7 +125,7 @@ export default function Home() {
 
   const update = useCallback((key, value) => {
     const newData = { ...data, [key]: typeof value === 'function' ? value(data[key]) : value }
-    save(newData)
+    return save(newData)
   }, [data, save])
 
   const handleLogout = async () => {

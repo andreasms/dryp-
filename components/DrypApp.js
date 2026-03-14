@@ -952,7 +952,8 @@ function Documents({data,update,supabase}){
       const{error}=await supabase.storage.from('team-files').upload(path,file)
       if(error)throw error
       const{data:urlData}=supabase.storage.from('team-files').getPublicUrl(path)
-      update("documents",prev=>[{id:uid(),name:file.name,size:file.size,type:file.type,path,url:urlData.publicUrl,uploaded:today(),folder:activeFolder||"Generelt"},...(prev||[])])
+      const ok=await update("documents",prev=>[{id:uid(),name:file.name,size:file.size,type:file.type,path,url:urlData.publicUrl,uploaded:today(),folder:activeFolder||"Generelt"},...(prev||[])])
+      if(!ok){try{await supabase.storage.from('team-files').remove([path])}catch(re){console.error('[DRYP] rollback file delete failed:',re)};setStatus('Fejl: Fil uploadet men metadata ikke gemt — filen blev fjernet');return}
       setStatus(`✓ ${file.name} uploadet!`)
     }catch(err){setStatus(`Fejl: ${err.message}`)}
     setUploading(false);if(fileRef.current)fileRef.current.value=""
