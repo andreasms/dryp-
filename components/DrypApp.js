@@ -20,11 +20,15 @@ const Plus=({s=13,c="currentColor"})=><svg width={s} height={s} viewBox="0 0 16 
 
 const Tip=({text})=>{
   const[open,setOpen]=useState(false)
+  const[pos,setPos]=useState({bottom:0,left:0})
   const ref=useRef(null)
+  const btnRef=useRef(null)
   useEffect(()=>{if(!open)return;const h=e=>{if(ref.current&&!ref.current.contains(e.target))setOpen(false)};document.addEventListener('click',h);return()=>document.removeEventListener('click',h)},[open])
+  useEffect(()=>{if(!open)return;const h=()=>setOpen(false);window.addEventListener('scroll',h,true);return()=>window.removeEventListener('scroll',h,true)},[open])
+  const toggle=e=>{e.stopPropagation();if(!open&&btnRef.current){const r=btnRef.current.getBoundingClientRect();setPos({bottom:window.innerHeight-r.top+8,left:Math.min(Math.max(r.left+r.width/2,140),window.innerWidth-140)})}setOpen(o=>!o)}
   return<span ref={ref} style={{position:"relative",display:"inline-flex",marginLeft:6}}>
-    <button onClick={e=>{e.stopPropagation();setOpen(!open)}} style={{display:"inline-flex",alignItems:"center",justifyContent:"center",width:20,height:20,borderRadius:"50%",border:`1.5px solid ${open?T.acc:T.dim}`,fontSize:11,fontWeight:700,color:open?T.acc:T.dim,background:open?T.accD:"transparent",cursor:"pointer",lineHeight:1}}>?</button>
-    {open&&<div style={{position:"absolute",bottom:"calc(100% + 10px)",left:"50%",transform:"translateX(-50%)",background:T.card,border:`1px solid ${T.brd}`,borderRadius:10,padding:"12px 16px",fontSize:13,color:T.txt,minWidth:260,maxWidth:360,zIndex:999,lineHeight:1.6,boxShadow:"0 12px 40px rgba(0,0,0,.6)",whiteSpace:"normal"}}>{text}<div style={{position:"absolute",bottom:-6,left:"50%",transform:"translateX(-50%) rotate(45deg)",width:12,height:12,background:T.card,borderRight:`1px solid ${T.brd}`,borderBottom:`1px solid ${T.brd}`}}/></div>}
+    <button ref={btnRef} onClick={toggle} style={{display:"inline-flex",alignItems:"center",justifyContent:"center",width:20,height:20,borderRadius:"50%",border:`1.5px solid ${open?T.acc:T.dim}`,fontSize:11,fontWeight:700,color:open?T.acc:T.dim,background:open?T.accD:"transparent",cursor:"pointer",lineHeight:1}}>?</button>
+    {open&&<div style={{position:"fixed",bottom:pos.bottom,left:pos.left,transform:"translateX(-50%)",background:T.card,border:`1px solid ${T.brd}`,borderRadius:10,padding:"12px 16px",fontSize:13,color:T.txt,minWidth:260,maxWidth:360,zIndex:9999,lineHeight:1.6,boxShadow:"0 12px 40px rgba(0,0,0,.6)",whiteSpace:"normal"}}>{text}<div style={{position:"absolute",bottom:-6,left:"50%",transform:"translateX(-50%) rotate(45deg)",width:12,height:12,background:T.card,borderRight:`1px solid ${T.brd}`,borderBottom:`1px solid ${T.brd}`}}/></div>}
   </span>
 }
 
@@ -44,7 +48,8 @@ const SH=({title,desc,tip,children})=><div style={{display:"flex",justifyContent
 export default function DrypApp({data,update,save,user,onLogout,supabase}){
   const[page,setPage]=useState("dashboard")
   const[sb,setSb]=useState(typeof window!=='undefined'?window.innerWidth>900:true)
-  useEffect(()=>{const h=()=>setSb(window.innerWidth>900);window.addEventListener("resize",h);return()=>window.removeEventListener("resize",h)},[])
+  const[isMobile,setIsMobile]=useState(typeof window!=='undefined'?window.innerWidth<=768:false)
+  useEffect(()=>{const h=()=>{setSb(window.innerWidth>900);setIsMobile(window.innerWidth<=768)};window.addEventListener("resize",h);return()=>window.removeEventListener("resize",h)},[])
 
   const nav=[
     {id:"_hd",l:"PRODUKTION",hd:true},
@@ -69,18 +74,18 @@ export default function DrypApp({data,update,save,user,onLogout,supabase}){
   const userName=user?.email?.split('@')[0]||'Bruger'
 
   return<div style={{display:"flex",height:"100vh",overflow:"hidden",fontSize:T.fs,color:T.txt}}>
-    <div style={{width:sb?220:0,minWidth:sb?220:0,background:T.card,borderRight:`1px solid ${T.brdL}`,display:"flex",flexDirection:"column",transition:"all .3s",overflow:"hidden",position:typeof window!=='undefined'&&window.innerWidth<=768?"fixed":"relative",zIndex:100,height:"100%"}}>
+    <div style={{width:sb?220:0,minWidth:sb?220:0,background:T.card,borderRight:`1px solid ${T.brdL}`,display:"flex",flexDirection:"column",transition:"width .25s ease, min-width .25s ease",overflow:"hidden",position:isMobile?"fixed":"relative",zIndex:100,height:"100%"}}>
       <div style={{padding:"20px 16px 8px"}}><div style={{fontFamily:"'Archivo Black',sans-serif",fontSize:20,color:T.acc,letterSpacing:".12em"}}>DRYP</div><div style={{fontSize:9,color:T.dim,letterSpacing:".15em",textTransform:"uppercase",marginTop:2}}>Skagen · DK</div></div>
       <nav style={{padding:"10px 8px",flex:1,overflow:"auto"}}>
         {nav.map(n=>n.hd?<div key={n.id} style={{fontSize:9,fontWeight:700,color:T.dim,letterSpacing:".12em",padding:"16px 10px 4px",opacity:.6}}>{n.l}</div>:
-        <button key={n.id} onClick={()=>{setPage(n.id);if(typeof window!=='undefined'&&window.innerWidth<=768)setSb(false)}} style={{display:"flex",alignItems:"center",gap:9,width:"100%",padding:"8px 12px",borderRadius:7,marginBottom:2,background:page===n.id?T.accD:"transparent",color:page===n.id?T.acc:T.mid,fontSize:12.5,fontWeight:page===n.id?600:400,textAlign:"left",cursor:"pointer"}}><span style={{width:16,textAlign:"center",fontSize:12,opacity:page===n.id?1:.4}}>{n.i}</span>{n.l}</button>)}
+        <button key={n.id} onClick={()=>{setPage(n.id);if(isMobile)setSb(false)}} style={{display:"flex",alignItems:"center",gap:9,width:"100%",padding:"8px 12px",borderRadius:7,marginBottom:2,background:page===n.id?T.accD:"transparent",color:page===n.id?T.acc:T.mid,fontSize:12.5,fontWeight:page===n.id?600:400,textAlign:"left",cursor:"pointer"}}><span style={{width:16,textAlign:"center",fontSize:12,opacity:page===n.id?1:.4}}>{n.i}</span>{n.l}</button>)}
       </nav>
       <div style={{padding:"12px 16px",borderTop:`1px solid ${T.brdL}`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
         <div style={{display:"flex",alignItems:"center",gap:8}}><div style={{width:28,height:28,borderRadius:"50%",background:T.accD,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,color:T.acc}}>{userName.charAt(0).toUpperCase()}</div><div style={{fontSize:12}}>{userName}</div></div>
         <button onClick={onLogout} style={{background:"none",color:T.dim,fontSize:10,cursor:"pointer"}}>Log ud</button>
       </div>
     </div>
-    {sb&&typeof window!=='undefined'&&window.innerWidth<=768&&<div onClick={()=>setSb(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.5)",zIndex:99}}/>}
+    {sb&&isMobile&&<div onClick={()=>setSb(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.5)",zIndex:99}}/>}
     <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden",background:T.bg}}>
       <header style={{display:"flex",alignItems:"center",gap:12,padding:"12px 20px",borderBottom:`1px solid ${T.brdL}`,background:T.card,flexShrink:0}}>
         {!sb&&<button onClick={()=>setSb(true)} style={{background:"none",color:T.mid,fontSize:18,cursor:"pointer"}}>☰</button>}
