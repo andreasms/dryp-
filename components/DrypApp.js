@@ -35,7 +35,7 @@ const Tip=({text})=>{
   </span>
 }
 
-const Badge=({children,c=T.acc,bg})=><span style={{display:"inline-flex",fontSize:11,fontWeight:600,letterSpacing:".03em",textTransform:"uppercase",color:c,background:bg||`${c}22`,padding:"3px 10px",borderRadius:99,whiteSpace:"nowrap"}}>{children}</span>
+const Badge=({children,c=T.acc,bg})=><span style={{display:"inline-flex",fontSize:11,fontWeight:600,letterSpacing:".03em",textTransform:"uppercase",color:c,background:bg||`${c}44`,padding:"3px 10px",borderRadius:99,whiteSpace:"nowrap",border:`1px solid ${c}55`}}>{children}</span>
 const Btn=({children,primary,danger,small,disabled,style,...p})=><button {...p} style={{display:"inline-flex",alignItems:"center",gap:6,padding:small?"5px 12px":"8px 16px",borderRadius:8,fontSize:small?12:13,fontWeight:600,background:danger?T.red:primary?T.acc:small?T.card2:"transparent",color:danger?"#fff":primary?T.bg:T.txt,border:primary||danger?"none":`1px solid ${T.brd}`,opacity:disabled?.4:1,cursor:disabled?"not-allowed":"pointer",transition:"all .15s",...style}} disabled={disabled}/>
 const Card=({children,style,onClick})=><div onClick={onClick} style={{background:T.card,border:`1px solid ${T.brdL}`,borderRadius:12,padding:18,cursor:onClick?"pointer":"default",...style}}>{children}</div>
 const Field=({label,children,tip})=><div style={{marginBottom:14}}><label style={{display:"flex",alignItems:"center",fontSize:11,fontWeight:600,color:T.mid,letterSpacing:".05em",textTransform:"uppercase",marginBottom:5}}>{label}{tip&&<Tip text={tip}/>}</label>{children}</div>
