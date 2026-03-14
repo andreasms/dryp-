@@ -48,11 +48,11 @@ export default function Home() {
       if (!user) { window.location.href = '/login'; return }
       setUser(user)
 
-      // Load app data from Supabase
+      // Load shared team data from Supabase
       const { data: row } = await supabase
-        .from('app_data')
+        .from('team_data')
         .select('data')
-        .eq('user_id', user.id)
+        .eq('team_id', 'dryp')
         .single()
 
       setData(row?.data || { ...defaults })
@@ -61,13 +61,14 @@ export default function Home() {
     init()
   }, [])
 
-  // Save function
+  // Save function — writes to shared team_data
   const save = useCallback(async (newData) => {
     setData(newData)
     if (!user) return
     await supabase
-      .from('app_data')
-      .upsert({ user_id: user.id, data: newData, updated_at: new Date().toISOString() })
+      .from('team_data')
+      .update({ data: newData, updated_by: user.id })
+      .eq('team_id', 'dryp')
   }, [user, supabase])
 
   const update = useCallback((key, value) => {

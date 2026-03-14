@@ -406,3 +406,85 @@ create policy "Users can update own haccp logs"
 create policy "Users can delete own haccp logs"
   on haccp_logs for delete
   using (auth.uid() = user_id);
+
+
+-- ═══════════════════════════════════════════
+-- DRYP Shared-Team Migration
+-- Converts all operational tables from
+-- per-user RLS to team-based RLS using
+-- team_members whitelist.
+-- Kør dette i Supabase SQL Editor.
+-- ═══════════════════════════════════════════
+
+
+-- ─── STEP 1: HELPER FUNCTION ───
+-- Reusable check: is the current user a team member?
+create or replace function is_team_member()
+returns boolean as $$
+  select exists (
+    select 1 from team_members
+    where email = auth.jwt() ->> 'email'
+  )
+$$ language sql security definer stable;
+
+
+-- ─── STEP 2: COPY app_data → team_data ───
+-- Picks the most complete app_data row (largest JSON)
+-- and inserts/updates into team_data for team_id = 'dryp'.
+-- Safe to run multiple times.
+insert into team_data (team_id, data, updated_at)
+  select 'dryp', data, now()
+  from app_data
+  order by length(data::text) desc
+  limit 1
+on conflict (team_id) do update
+  set data = excluded.data,
+      updated_at = now()
+  where length(excluded.data::text) > length(team_data.data::text);
+
+
+-- ─── STEP 3: REPLACE PER-USER RLS WITH TEAM RLS ───
+
+-- batches
+drop policy if exists "Users can view own batches" on batches;
+drop policy if exists "Users can insert own batches" on batches;
+drop policy if exists "Users can update own batches" on batches;
+create policy "Team can view batches" on batches for select using (is_team_member());
+create policy "Team can insert batches" on batches for insert with check (is_team_member());
+create policy "Team can update batches" on batches for update using (is_team_member());
+
+-- lots
+drop policy if exists "Users can view own lots" on lots;
+drop policy if exists "Users can insert own lots" on lots;
+drop policy if exists "Users can update own lots" on lots;
+create policy "Team can view lots" on lots for select using (is_team_member());
+create policy "Team can insert lots" on lots for insert with check (is_team_member());
+create policy "Team can update lots" on lots for update using (is_team_member());
+
+-- inventory_movements
+drop policy if exists "Users can view own movements" on inventory_movements;
+drop policy if exists "Users can insert own movements" on inventory_movements;
+create policy "Team can view movements" on inventory_movements for select using (is_team_member());
+create policy "Team can insert movements" on inventory_movements for insert with check (is_team_member());
+
+-- batch_events
+drop policy if exists "Users can view own batch events" on batch_events;
+drop policy if exists "Users can insert own batch events" on batch_events;
+create policy "Team can view batch events" on batch_events for select using (is_team_member());
+create policy "Team can insert batch events" on batch_events for insert with check (is_team_member());
+
+-- batch_lot_usage
+drop policy if exists "Users can view own batch lot usage" on batch_lot_usage;
+drop policy if exists "Users can insert own batch lot usage" on batch_lot_usage;
+create policy "Team can view batch lot usage" on batch_lot_usage for select using (is_team_member());
+create policy "Team can insert batch lot usage" on batch_lot_usage for insert with check (is_team_member());
+
+-- haccp_logs
+drop policy if exists "Users can view own haccp logs" on haccp_logs;
+drop policy if exists "Users can insert own haccp logs" on haccp_logs;
+drop policy if exists "Users can update own haccp logs" on haccp_logs;
+drop policy if exists "Users can delete own haccp logs" on haccp_logs;
+create policy "Team can view haccp logs" on haccp_logs for select using (is_team_member());
+create policy "Team can insert haccp logs" on haccp_logs for insert with check (is_team_member());
+create policy "Team can update haccp logs" on haccp_logs for update using (is_team_member());
+create policy "Team can delete haccp logs" on haccp_logs for delete using (is_team_member());
