@@ -957,7 +957,7 @@ function Documents({data,update,supabase}){
     }catch(err){setStatus(`Fejl: ${err.message}`)}
     setUploading(false);if(fileRef.current)fileRef.current.value=""
   }
-  const del=async(doc)=>{if(!confirm(`Slet "${doc.name}"?`))return;try{await supabase.storage.from('team-files').remove([doc.path])}catch(e){}update("documents",prev=>(prev||[]).filter(d=>d.id!==doc.id))}
+  const del=async(doc)=>{if(!confirm(`Slet "${doc.name}"?`))return;try{const{error}=await supabase.storage.from('team-files').remove([doc.path]);if(error)throw error}catch(e){setStatus(`Fejl ved sletning: ${e.message}`);return}update("documents",prev=>(prev||[]).filter(d=>d.id!==doc.id))}
   const fmtSize=(b)=>b>1e6?`${(b/1e6).toFixed(1)} MB`:`${(b/1e3).toFixed(0)} KB`
   const typeIcon=(t)=>t?.includes("sheet")||t?.includes("excel")?"📊":t?.includes("pdf")?"📄":t?.includes("image")?"🖼":"📎"
 
