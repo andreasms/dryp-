@@ -326,6 +326,8 @@ function Batches({data,update,supabase,batchNav,setBatchNav}){
   const[savingLot,setSavingLot]=useState(false)
   const[actualQty,setActualQty]=useState("")
   const[qtyStatus,setQtyStatus]=useState("")
+  const[showLotModal,setShowLotModal]=useState(false)
+  const[lotItemId,setLotItemId]=useState("")
 
   const refresh=()=>{if(!supabase)return;getBatches(supabase).then(rows=>{if(rows&&rows.length>0)setSqlBatches(rows)}).catch(()=>{})}
   useEffect(()=>{refresh()},[supabase])
@@ -497,7 +499,10 @@ function Batches({data,update,supabase,batchNav,setBatchNav}){
           <Tip text="Sporbarhed dokumenterer hvilke råvarelots der gik ind i denne batch. Påkrævet ved fødevarekontrol og tilbagekaldelser. Tidslinje og GS1-stregkoder tilføjes i kommende faser."/>
         </div>
 
-        <div style={{fontSize:11,fontWeight:600,color:T.mid,marginBottom:6}}>Råvarer brugt</div>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+          <div style={{fontSize:11,fontWeight:600,color:T.mid}}>Råvarer brugt</div>
+          {selected.status==="in_progress"&&<Btn small primary onClick={()=>{setLotItemId("");setNewLot({lotId:"",qtyUsed:""});setShowLotModal(true)}}>+ Registrér råvare</Btn>}
+        </div>
         {lotUsage.length===0?<div style={{fontSize:12,color:T.dim,marginBottom:10}}>Ingen råvarer registreret endnu</div>:lotUsage.map(u=><div key={u.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:12,padding:"5px 0",borderBottom:`1px solid ${T.brdL}`}}><div><span style={{fontWeight:500}}>{u.lots?.lot_number||u.lot_id}</span><span style={{color:T.dim,marginLeft:8}}>{data.inventory.find(i=>i.id===u.lots?.item_id)?.name||u.lots?.item_id||u.item_id}</span></div><span style={{fontFamily:T.fm,color:T.acc}}>{u.qty_used} {u.unit}</span></div>)}
 
         {lotUsage.length>0&&<div style={{marginTop:10,fontSize:11,color:T.dim,fontStyle:"italic",paddingTop:6,borderTop:`1px solid ${T.brdL}`}}>Produktionstidslinje og GS1/GTIN-stregkode tilknyttes i næste version af sporbarhedsmodulet</div>}
@@ -505,6 +510,28 @@ function Batches({data,update,supabase,batchNav,setBatchNav}){
 
       <div style={{display:"flex",justifyContent:"flex-end"}}>
         <Btn onClick={()=>setSelectedId(null)}>Luk</Btn>
+      </div>
+    </Modal>}
+    {showLotModal&&selected&&<Modal title="Registrér råvareforbrug" onClose={()=>setShowLotModal(false)}>
+      <Field label="Råvare">
+        <select value={lotItemId} onChange={e=>{setLotItemId(e.target.value);setNewLot({lotId:"",qtyUsed:""})}}>
+          <option value="">Vælg råvare...</option>
+          {(selected.recipe_snapshot?.bom||[]).map(b=>{const inv=data.inventory.find(i=>i.id===b.itemId);return inv?<option key={b.itemId} value={b.itemId}>{inv.name} ({inv.unit})</option>:null})}
+        </select>
+      </Field>
+      <Field label="Lot">
+        <select value={newLot.lotId} onChange={e=>setNewLot({...newLot,lotId:e.target.value})} disabled={!lotItemId}>
+          <option value="">Vælg lot...</option>
+          {activeLots.filter(l=>l.item_id===lotItemId).map(l=><option key={l.id} value={l.id}>{l.lot_number} · {l.qty_remaining} {l.unit} tilbage</option>)}
+        </select>
+      </Field>
+      <Field label={`Mængde brugt${activeLots.find(l=>l.id===newLot.lotId)?.unit?` (${activeLots.find(l=>l.id===newLot.lotId).unit})`:""}`}>
+        <input type="number" step=".01" min="0" value={newLot.qtyUsed} onChange={e=>setNewLot({...newLot,qtyUsed:e.target.value})} placeholder="0.00"/>
+      </Field>
+      {activeLots.filter(l=>l.item_id===lotItemId).length===0&&lotItemId&&<div style={{fontSize:12,color:T.warn,marginBottom:12,padding:"8px 12px",background:T.input,borderRadius:8}}>Ingen aktive lots for denne råvare. Opret et lot under Lager først.</div>}
+      <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+        <Btn onClick={()=>setShowLotModal(false)}>Annuller</Btn>
+        <Btn primary disabled={savingLot||!newLot.lotId||!newLot.qtyUsed} onClick={async()=>{await addLotUsage();setShowLotModal(false)}}>{savingLot?"Gemmer...":"✓ Registrér"}</Btn>
       </div>
     </Modal>}
     {show&&<Modal title={`Batch · ${form.id}`} onClose={()=>setShow(false)}>
