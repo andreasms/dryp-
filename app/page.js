@@ -59,6 +59,21 @@ export default function Home() {
       setLoading(false)
     }
     init()
+
+    // Realtime sync — reload shared data when another user saves
+    const channel = supabase.channel('team-data-sync')
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'team_data',
+        filter: 'team_id=eq.dryp'
+      }, (payload) => {
+        if (!payload?.new?.data) return
+        setData(payload.new.data)
+      })
+      .subscribe()
+
+    return () => { supabase.removeChannel(channel) }
   }, [])
 
   // Save function — writes to shared team_data
