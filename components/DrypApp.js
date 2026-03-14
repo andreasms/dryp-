@@ -425,6 +425,21 @@ function Batches({data,update,supabase,batchNav,setBatchNav}){
         {[["Opskrift",selected.recipe_snapshot?.name||selected.recipe_id||"—"],["Operatør",selected.operator||"—"],["Planlagt antal",selected.planned_qty?`${selected.planned_qty} stk`:"—"],["Planlagt dato",selected.planned_date||"—"]].map(([k,v])=><div key={k}><div style={{fontSize:10,color:T.dim,textTransform:"uppercase",letterSpacing:".05em",marginBottom:3}}>{k}</div><div style={{fontWeight:500}}>{v}</div></div>)}
       </div>
 
+      {/* ─── NÆSTE SKRIDT ─── */}
+      {(()=>{const s=selected.status;const hasLots=lotUsage.length>0;const hasQty=!!(selected.actual_qty||parseInt(actualQty));if(s==="planned")return<div style={{background:T.accDD,borderLeft:`3px solid ${T.acc}`,borderRadius:8,padding:"12px 16px",marginBottom:18,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+        <div><div style={{fontSize:10,fontWeight:700,color:T.dim,textTransform:"uppercase",letterSpacing:".08em",marginBottom:3}}>Næste skridt</div><div style={{fontSize:13,color:T.txt,fontWeight:500}}>Start produktion af denne batch</div></div>
+        <Btn primary disabled={acting} onClick={()=>doAction("in_progress",{started_at:new Date().toISOString()})}>▶ Start batch</Btn>
+      </div>;if(s==="in_progress"&&!hasLots)return<div style={{background:T.accDD,borderLeft:`3px solid ${T.warn}`,borderRadius:8,padding:"12px 16px",marginBottom:18}}>
+        <div style={{fontSize:10,fontWeight:700,color:T.dim,textTransform:"uppercase",letterSpacing:".08em",marginBottom:3}}>Næste skridt</div><div style={{fontSize:13,color:T.txt,fontWeight:500}}>Tilføj råvare-lot i sektionen nedenfor</div>
+      </div>;if(s==="in_progress"&&hasLots&&!hasQty)return<div style={{background:T.accDD,borderLeft:`3px solid ${T.warn}`,borderRadius:8,padding:"12px 16px",marginBottom:18}}>
+        <div style={{fontSize:10,fontWeight:700,color:T.dim,textTransform:"uppercase",letterSpacing:".08em",marginBottom:3}}>Næste skridt</div><div style={{fontSize:13,color:T.txt,fontWeight:500}}>Angiv faktisk produceret antal nedenfor</div>
+      </div>;if(s==="in_progress"&&hasLots&&hasQty)return<div style={{background:T.accDD,borderLeft:`3px solid ${T.ok}`,borderRadius:8,padding:"12px 16px",marginBottom:18,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+        <div><div style={{fontSize:10,fontWeight:700,color:T.dim,textTransform:"uppercase",letterSpacing:".08em",marginBottom:3}}>Næste skridt</div><div style={{fontSize:13,color:T.txt,fontWeight:500}}>Batch klar til afslutning</div></div>
+        <Btn primary disabled={acting} onClick={()=>doAction("completed",{completed_at:new Date().toISOString(),...(actualQty?{actual_qty:parseInt(actualQty)}:{})})}>✓ Afslut batch</Btn>
+      </div>;if(s==="completed")return<div style={{background:T.accDD,borderLeft:`3px solid ${T.ok}`,borderRadius:8,padding:"12px 16px",marginBottom:18}}>
+        <div style={{fontSize:13,color:T.ok,fontWeight:500}}>✓ Batch er afsluttet{selected.completed_at&&<span style={{color:T.dim,fontWeight:400,marginLeft:8,fontSize:11}}>{selected.completed_at.slice(0,10)}</span>}</div>
+      </div>;return null})()}
+
       {/* ─── 2. PRODUKTION ─── */}
       <div style={{borderTop:`1px solid ${T.brdL}`,paddingTop:16,marginBottom:22}}>
         <div style={{fontSize:10,fontWeight:700,color:T.dim,textTransform:"uppercase",letterSpacing:".1em",marginBottom:14}}>2 · Produktion</div>
