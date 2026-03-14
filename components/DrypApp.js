@@ -927,20 +927,94 @@ function Customers({data,update}){
 
 function Economy({data,save}){
   const[editP,setEditP]=useState(false);const p=data.prices||{};const[pf,setPf]=useState(p)
+  const recipes=(data.recipes||[]).filter(r=>r.active)
+  const orders=data.orders||[]
+
+  // Cost helpers
   const costRaw=(rid)=>{const r=(data.recipes||[]).find(x=>x.id===rid);if(!r)return 0;return(r.bom||[]).filter(b=>{const inv=data.inventory.find(x=>x.id===b.itemId);return inv?.cat==="Råvare"}).reduce((s,b)=>{const inv=data.inventory.find(x=>x.id===b.itemId);return s+(inv?.costPer||0)*b.qty},0)}
   const costPack=(rid)=>{const r=(data.recipes||[]).find(x=>x.id===rid);if(!r)return 0;return(r.bom||[]).filter(b=>{const inv=data.inventory.find(x=>x.id===b.itemId);return inv?.cat!=="Råvare"}).reduce((s,b)=>{const inv=data.inventory.find(x=>x.id===b.itemId);return s+(inv?.costPer||0)*b.qty},0)}
-  const costTotal=(rid)=>costRaw(rid)+costPack(rid)
-  const mo=today().slice(0,7);const rev=data.orders.filter(o=>o.date?.startsWith(mo)).reduce((s,o)=>s+(parseFloat(o.price)||0)*(parseInt(o.qty)||0),0)
+
+  // Wholesale price lookup — best-effort mapping from recipe id to data.prices fields.
+  // Currently data.prices has wholesale250/wholesale500. We infer by size substring.
+  // When new products are added, extend this mapping or add per-recipe price fields.
+  const getWholesalePrice=(rid)=>{
+    if(rid.includes("250"))return p.wholesale250||0
+    if(rid.includes("500"))return p.wholesale500||0
+    return 0
+  }
+
+  // Revenue: current and previous month
+  const mo=today().slice(0,7)
+  const prevDate=new Date(today());prevDate.setMonth(prevDate.getMonth()-1)
+  const prevMo=prevDate.toISOString().slice(0,7)
+  const revThis=orders.filter(o=>o.date?.startsWith(mo)).reduce((s,o)=>s+(parseFloat(o.price)||0)*(parseInt(o.qty)||0),0)
+  const revPrev=orders.filter(o=>o.date?.startsWith(prevMo)).reduce((s,o)=>s+(parseFloat(o.price)||0)*(parseInt(o.qty)||0),0)
+
+  // Bottles sold this month + weighted margin
+  const thisMonthOrders=orders.filter(o=>o.date?.startsWith(mo))
+  const totalQtyThis=thisMonthOrders.reduce((s,o)=>s+(parseInt(o.qty)||0),0)
+  let marginWeightedSum=0;let revenueWeightedSum=0
+  thisMonthOrders.forEach(o=>{
+    const qty=parseInt(o.qty)||0;const price=parseFloat(o.price)||0
+    const r=recipes.find(x=>x.name===o.product)
+    if(!r||!qty||!price)return
+    const cost=costRaw(r.id)+costPack(r.id)
+    marginWeightedSum+=(price-cost)*qty
+    revenueWeightedSum+=price*qty
+  })
+  const avgDbPct=revenueWeightedSum>0?Math.round(marginWeightedSum/revenueWeightedSum*100):null
+  const overheadPerBottle=totalQtyThis>0?((p.overhead||0)/totalQtyThis):null
+
   return<div style={{maxWidth:1060}}>
     <SH title="Økonomi" desc="Omsætning, kostpriser og marginer" tip="Råvarekost og emballage vises separat. Dækningsbidrag beregnes automatisk fra engrospris minus samlet kostpris."/>
+
+    {/* ─── B1: KPI CARDS ─── */}
     <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:22}}>
-      <Stat label="Omsætning" value={fk(rev)} c={T.ok} sub="Denne måned"/>
-      <Stat label="Engros 250ml" value={`${p.wholesale250||0} kr`} c={T.acc} sub={`Råvare: ${costRaw("dild-250").toFixed(0)} + Emb: ${costPack("dild-250").toFixed(0)} = ${costTotal("dild-250").toFixed(0)} kr · DB: ${((p.wholesale250||0)-costTotal("dild-250")).toFixed(0)} kr`}/>
-      <Stat label="Engros 500ml" value={`${p.wholesale500||0} kr`} c={T.acc} sub={`Råvare: ${costRaw("dild-500").toFixed(0)} + Emb: ${costPack("dild-500").toFixed(0)} = ${costTotal("dild-500").toFixed(0)} kr · DB: ${((p.wholesale500||0)-costTotal("dild-500")).toFixed(0)} kr`}/>
+      <Stat label="Omsætning" value={fk(revThis)} c={T.ok} sub="Denne måned"/>
+      <Stat label="Forrige måned" value={fk(revPrev)} c={T.mid}/>
+      <Stat label="Gns. DB%" value={avgDbPct!==null?`${avgDbPct}%`:"—"} c={avgDbPct!==null&&avgDbPct>0?T.ok:T.warn} sub={avgDbPct!==null?"Vægtet snit denne måned":"Ingen ordrer endnu"}/>
+      <Stat label="Overhead / flaske" value={overheadPerBottle!==null?`${overheadPerBottle.toFixed(1)} kr`:"—"} c={T.mid} sub={totalQtyThis>0?`${totalQtyThis} stk solgt denne måned`:`${fk(p.overhead||0)} pr. måned`}/>
     </div>
-    <Card><div style={{display:"flex",justifyContent:"space-between",marginBottom:14}}><span style={{fontSize:14,fontWeight:600}}>Kostpris pr. produkt</span><Btn small onClick={()=>{setPf(p);setEditP(true)}}>✎ Priser</Btn></div>
-      {(data.recipes||[]).filter(r=>r.active).map(r=>{const raw=costRaw(r.id);const pack=costPack(r.id);const total=raw+pack;return<div key={r.id} style={{display:"flex",justifyContent:"space-between",padding:"10px 0",borderBottom:`1px solid ${T.brdL}`,fontSize:13}}><span style={{fontWeight:500}}>{r.name}</span><div style={{display:"flex",gap:16,fontSize:12}}><span style={{color:T.acc,fontFamily:T.fm}}>Råvare: {raw.toFixed(1)}</span><span style={{color:T.mid,fontFamily:T.fm}}>Emb: {pack.toFixed(1)}</span><span style={{color:T.warn,fontFamily:T.fm,fontWeight:600}}>Total: {total.toFixed(1)} kr</span>{r.id==="dild-250"&&p.wholesale250>0&&<span style={{color:T.ok,fontFamily:T.fm}}>DB: {((p.wholesale250||0)-total).toFixed(0)} kr ({(((p.wholesale250-total)/p.wholesale250)*100).toFixed(0)}%)</span>}{r.id==="dild-500"&&p.wholesale500>0&&<span style={{color:T.ok,fontFamily:T.fm}}>DB: {((p.wholesale500||0)-total).toFixed(0)} kr ({(((p.wholesale500-total)/p.wholesale500)*100).toFixed(0)}%)</span>}</div></div>})}
-    </Card>
+
+    {/* ─── B2: PRODUCT MARGIN CARDS ─── */}
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+      <span style={{fontSize:14,fontWeight:600}}>Produktmargin</span>
+      <Btn small onClick={()=>{setPf(p);setEditP(true)}}>✎ Priser</Btn>
+    </div>
+    {recipes.map(r=>{
+      const raw=costRaw(r.id);const pack=costPack(r.id)
+      const wholesale=getWholesalePrice(r.id)
+      const ohPerUnit=overheadPerBottle||0
+      const totalCost=raw+pack+ohPerUnit
+      const db=wholesale-totalCost
+      const dbPct=wholesale>0?Math.round(db/wholesale*100):0
+      // Stacked bar segments: proportional to wholesale (or totalCost if no wholesale)
+      const barMax=Math.max(wholesale,totalCost,1)
+      const rawW=raw/barMax*100;const packW=pack/barMax*100;const ohW=ohPerUnit/barMax*100;const profitW=db>0?db/barMax*100:0
+      return<Card key={r.id} style={{marginBottom:10,padding:16}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:10}}>
+          <div><span style={{fontSize:14,fontWeight:600}}>{r.name}</span><span style={{fontSize:11,color:T.dim,marginLeft:8}}>{r.id}</span></div>
+          <div style={{fontSize:13,fontFamily:T.fm,color:T.mid}}>Engros: {wholesale>0?`${wholesale} kr`:<span style={{color:T.warn}}>mangler pris</span>}</div>
+        </div>
+
+        {/* Stacked cost bar */}
+        <div style={{display:"flex",height:22,borderRadius:6,overflow:"hidden",marginBottom:10,background:T.input}}>
+          {rawW>0&&<div style={{width:`${rawW}%`,background:"#7eb85a",display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:600,color:T.bg,minWidth:rawW>8?0:"auto"}} title={`Råvare: ${raw.toFixed(1)} kr`}>{rawW>10?"Råvare":""}</div>}
+          {packW>0&&<div style={{width:`${packW}%`,background:"#b8a44e",display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:600,color:T.bg,minWidth:packW>8?0:"auto"}} title={`Emballage: ${pack.toFixed(1)} kr`}>{packW>10?"Emb":""}</div>}
+          {ohW>0&&<div style={{width:`${ohW}%`,background:"#8a7a5a",display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:600,color:T.bg}} title={`Overhead: ${ohPerUnit.toFixed(1)} kr`}>{ohW>10?"OH":""}</div>}
+          {profitW>0&&<div style={{width:`${profitW}%`,background:T.ok,display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:600,color:T.bg}} title={`DB: ${db.toFixed(1)} kr`}>{profitW>12?"DB":""}</div>}
+        </div>
+
+        {/* Numbers row */}
+        <div style={{display:"flex",gap:16,flexWrap:"wrap",fontSize:12}}>
+          <span style={{color:"#7eb85a",fontFamily:T.fm}}>Råvare: {raw.toFixed(1)}</span>
+          <span style={{color:"#b8a44e",fontFamily:T.fm}}>Emb: {pack.toFixed(1)}</span>
+          {ohPerUnit>0&&<span style={{color:"#8a7a5a",fontFamily:T.fm}}>OH: {ohPerUnit.toFixed(1)}</span>}
+          <span style={{color:T.warn,fontFamily:T.fm,fontWeight:600}}>Kostpris: {totalCost.toFixed(1)} kr</span>
+          {wholesale>0&&<span style={{color:db>=0?T.ok:T.red,fontFamily:T.fm,fontWeight:600}}>DB: {db.toFixed(0)} kr ({dbPct}%)</span>}
+        </div>
+      </Card>
+    })}
     {editP&&<Modal title="Priser" onClose={()=>setEditP(false)}><Field label="Retail 250ml" tip="Vejledende udsalgspris til slutkunde"><input type="number" value={pf.retail250||0} onChange={e=>setPf({...pf,retail250:parseFloat(e.target.value)||0})}/></Field><Field label="Engros 250ml" tip="B2B pris til restauranter og forhandlere"><input type="number" value={pf.wholesale250||0} onChange={e=>setPf({...pf,wholesale250:parseFloat(e.target.value)||0})}/></Field><Field label="Retail 500ml"><input type="number" value={pf.retail500||0} onChange={e=>setPf({...pf,retail500:parseFloat(e.target.value)||0})}/></Field><Field label="Engros 500ml"><input type="number" value={pf.wholesale500||0} onChange={e=>setPf({...pf,wholesale500:parseFloat(e.target.value)||0})}/></Field><Field label="Overhead pr. måned" tip="Faste udgifter (lager, transport, forsikring)"><input type="number" value={pf.overhead||0} onChange={e=>setPf({...pf,overhead:parseFloat(e.target.value)||0})}/></Field><div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn onClick={()=>setEditP(false)}>Annuller</Btn><Btn primary onClick={()=>{save({...data,prices:pf});setEditP(false)}}>✓ Gem</Btn></div></Modal>}
   </div>
 }
