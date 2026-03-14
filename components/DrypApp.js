@@ -529,6 +529,9 @@ function HACCPLogs({data,update}){
 function Inventory({data,update,supabase}){
   const[show,setShow]=useState(false);const[form,setForm]=useState({});const[eId,setEId]=useState(null);const[qv,setQv]=useState("")
   const[showLot,setShowLot]=useState(false);const[lotForm,setLotForm]=useState({});const[savingLot,setSavingLot]=useState(false)
+  const[activeLots,setActiveLots]=useState([])
+  const loadLots=()=>{if(supabase)getActiveLots(supabase).then(setActiveLots).catch(()=>{})}
+  useEffect(()=>{loadLots()},[supabase])
   const cats=[...new Set(data.inventory.map(i=>i.cat))]
   const rawItems=(data.inventory||[]).filter(i=>i.cat==="Råvare")
 
@@ -560,7 +563,7 @@ function Inventory({data,update,supabase}){
         reference:lotForm.lot_number,
         notes:"Lot modtaget",
       })
-      setShowLot(false);setLotForm({})
+      setShowLot(false);setLotForm({});loadLots()
     }catch(err){console.error("[DRYP] createLot failed:",err);alert("Fejl ved oprettelse af lot: "+err.message)}
     setSavingLot(false)
   }
@@ -574,6 +577,17 @@ function Inventory({data,update,supabase}){
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><div><div style={{fontSize:14,fontWeight:500}}>{low&&<span style={{color:T.red}}>⚠ </span>}{item.name}</div><div style={{fontSize:12,color:T.dim}}>Min: {item.min} · Lead: {item.leadDays}d{item.supplier&&` · ${item.supplier}`} · {fk(item.costPer)}/{item.unit}</div></div>
           <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>{eId===item.id?<div style={{display:"flex",gap:4}}><input type="number" value={qv} onChange={e=>setQv(e.target.value)} style={{width:70}} autoFocus onKeyDown={e=>{if(e.key==="Enter"){update("inventory",p=>p.map(i=>i.id===item.id?{...i,qty:parseFloat(qv)||0}:i));setEId(null)}}}/><Btn small primary onClick={()=>{update("inventory",p=>p.map(i=>i.id===item.id?{...i,qty:parseFloat(qv)||0}:i));setEId(null)}}>✓</Btn></div>:<button onClick={()=>{setEId(item.id);setQv(String(item.qty))}} style={{background:"none",color:low?T.red:T.txt,cursor:"pointer"}}><span style={{fontSize:20,fontFamily:T.fm,fontWeight:700}}>{item.qty}</span><span style={{fontSize:11,color:T.dim,marginLeft:3}}>{item.unit}</span></button>}{item.cat==="Råvare"&&<Btn small onClick={()=>{setLotForm({item_id:item.id,item_name:item.name,item_unit:item.unit,lot_number:"",supplier:"",qty_received:"",received_date:today(),expiry_date:""});setShowLot(true)}} style={{color:T.acc,borderColor:T.acc}}>+ Opret lot</Btn>}<Btn small onClick={()=>{setForm(item);setShow(true)}}>✎ Rediger</Btn><Btn small danger onClick={()=>{if(confirm(`Slet "${item.name}"?`))update("inventory",p=>p.filter(x=>x.id!==item.id))}}>✕ Slet</Btn></div></div>
         <div style={{marginTop:6,height:4,background:T.input,borderRadius:2,overflow:"hidden"}}><div style={{height:"100%",width:`${Math.min(item.qty/(item.min||1)*100,100)}%`,background:low?T.red:item.qty<item.min*1.5?T.warn:T.ok,borderRadius:2}}/></div>
+        {item.cat==="Råvare"&&activeLots.filter(l=>l.item_id===item.id).length>0&&<div style={{marginTop:8,paddingTop:8,borderTop:`1px solid ${T.brdL}`}}>
+          <div style={{fontSize:10,fontWeight:600,color:T.dim,textTransform:"uppercase",letterSpacing:".06em",marginBottom:4}}>Aktive lots</div>
+          {activeLots.filter(l=>l.item_id===item.id).map(l=><div key={l.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:12,padding:"3px 0",borderBottom:`1px solid ${T.brdL}22`}}>
+            <span style={{fontWeight:500}}>{l.lot_number}</span>
+            <div style={{display:"flex",gap:12,alignItems:"center",color:T.dim}}>
+              <span style={{fontFamily:T.fm,color:T.acc}}>{l.qty_remaining} {l.unit}</span>
+              <span>Modtaget {l.received_date||"—"}</span>
+              {l.expiry_date&&<span style={{color:new Date(l.expiry_date)<new Date()?T.red:T.mid}}>Udløb {l.expiry_date}</span>}
+            </div>
+          </div>)}
+        </div>}
       </Card>})}
     </div>)}
     {showLot&&<Modal title={`Opret lot · ${lotForm.item_name||"—"}`} onClose={()=>setShowLot(false)}>
