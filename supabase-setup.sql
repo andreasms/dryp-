@@ -488,3 +488,50 @@ create policy "Team can view haccp logs" on haccp_logs for select using (is_team
 create policy "Team can insert haccp logs" on haccp_logs for insert with check (is_team_member());
 create policy "Team can update haccp logs" on haccp_logs for update using (is_team_member());
 create policy "Team can delete haccp logs" on haccp_logs for delete using (is_team_member());
+
+
+-- ───────────────────────────────────────────
+-- WIKI_PAGES
+-- Delte wiki-sider for teamet.
+-- Bruges til SOP'er, mødenoter, leverandør-
+-- noter, interne instruktioner.
+-- ───────────────────────────────────────────
+create table if not exists wiki_pages (
+  id            uuid        primary key default gen_random_uuid(),
+  title         text        not null default '',
+  content       text        not null default '',
+  created_by    uuid        not null references auth.users(id),
+  updated_by    uuid        references auth.users(id),
+  created_at    timestamptz not null default now(),
+  updated_at    timestamptz not null default now()
+);
+
+create index if not exists wiki_pages_updated_idx on wiki_pages (updated_at desc);
+
+alter table wiki_pages enable row level security;
+
+create policy "Team can view wiki" on wiki_pages for select using (is_team_member());
+create policy "Team can insert wiki" on wiki_pages for insert with check (is_team_member());
+create policy "Team can update wiki" on wiki_pages for update using (is_team_member());
+create policy "Team can delete wiki" on wiki_pages for delete using (is_team_member());
+
+
+-- ───────────────────────────────────────────
+-- TEAM_MESSAGES
+-- Delt team-chat. Append-only i v1.
+-- author_name denormaliseret for simpel visning.
+-- ───────────────────────────────────────────
+create table if not exists team_messages (
+  id            uuid        primary key default gen_random_uuid(),
+  author_id     uuid        not null references auth.users(id),
+  author_name   text        not null default '',
+  content       text        not null,
+  created_at    timestamptz not null default now()
+);
+
+create index if not exists team_messages_created_idx on team_messages (created_at desc);
+
+alter table team_messages enable row level security;
+
+create policy "Team can view messages" on team_messages for select using (is_team_member());
+create policy "Team can insert messages" on team_messages for insert with check (is_team_member());
