@@ -79,6 +79,7 @@ export default function Home() {
         filter: 'team_id=eq.dryp'
       }, (payload) => {
         if (!payload?.new?.data) return
+        if (savingRef.current) return
         setData(payload.new.data)
       })
       .subscribe()
@@ -100,7 +101,17 @@ export default function Home() {
         .from('team_data')
         .update({ data: newData, updated_by: user.id })
         .eq('team_id', 'dryp')
-      if (error) console.error('[DRYP] save failed:', error)
+      if (error) {
+        const blobSize = JSON.stringify(newData).length
+        console.error('[DRYP] save failed:', {
+          message: error.message,
+          code: error.code,
+          details: error.details,
+          hint: error.hint,
+          blobBytes: blobSize,
+          fullError: error
+        })
+      }
     } finally {
       savingRef.current = false
     }
