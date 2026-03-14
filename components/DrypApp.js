@@ -4,6 +4,7 @@ import { createBatch, getBatches, updateBatchStatus } from '@/lib/db/batches'
 import { createLot, getActiveLots, decrementLotQty } from '@/lib/db/lots'
 import { getBatchLotUsage, createBatchLotUsage } from '@/lib/db/batchLotUsage'
 import { recordMovement } from '@/lib/db/movements'
+import { createHaccpLog, getHaccpLogs, updateHaccpLog, deleteHaccpLog } from '@/lib/db/haccpLogs'
 
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,6)
 const today=()=>new Date().toISOString().slice(0,10)
@@ -494,24 +495,230 @@ function Batches({data,update,supabase,batchNav,setBatchNav}){
   </div>
 }
 
-// ═══ HACCP — same as before but with bigger text ═══
-function HACCPLogs({data,update}){
-  const[tab,setTab]=useState("cleaning");const[show,setShow]=useState(false);const[form,setForm]=useState({})
+// ═══ HACCP — Supabase-backed egenkontrol with history ═══
+function HACCPLogs({data,update,supabase,user}){
+  const[tab,setTab]=useState("cleaning")
+  const[show,setShow]=useState(false)
+  const[form,setForm]=useState({})
+  const[period,setPeriod]=useState("today")
+  const[weekOffset,setWeekOffset]=useState(0)
+  const[sqlLogs,setSqlLogs]=useState([])
+  const[loading,setLoading]=useState(false)
+  const[saving,setSaving]=useState(false)
+
   const tabs=[["cleaning","Rengøring"],["temps","Temperatur"],["receiving","Modtagelse"],["deviations","Afvigelser"],["maintenance","Vedligehold"]]
+  const tabLabel=Object.fromEntries(tabs)
   const tipMap={cleaning:"Daglig rengøringslog — dokumenterer at udstyr og lokaler er rengjort.",temps:"Temperaturlog for køleudstyr — registreres dagligt.",receiving:"Modtagekontrol af råvarer — temperatur og emballage ved levering.",deviations:"Afvigelser fra normal procedure — kræver korrigerende handling.",maintenance:"Forebyggende vedligehold af udstyr."}
-  const newE=()=>{const base={id:uid(),date:today(),operator:"Andreas",notes:""};const ex={cleaning:{area:"",product:"",disinfected:false,ok:false},temps:{time:"08:00",fridge1:"",fridge2:"",prodRoom:"",withinLimits:false,action:""},receiving:{supplier:"",item:"",qty:"",temp:"",packagingOk:false,approved:false},deviations:{description:"",processStep:"",batchId:"",corrective:"",preventive:"",closedDate:""},maintenance:{equipment:"",checkType:"",status:"OK",action:"",nextCheck:""}};setForm({...base,...ex[tab]});setShow(true)}
-  const doSave=()=>{update("haccp",prev=>({...prev,[tab]:[form,...(prev?.[tab]||[]).filter(e=>e.id!==form.id)]}));setShow(false)}
-  const entries=(data.haccp?.[tab]||[]).sort((a,b)=>(b.date||"").localeCompare(a.date||""))
-  return<div style={{maxWidth:960}}>
-    <SH title="HACCP Logs" desc="Egenkontrol-dokumentation" tip={tipMap[tab]}><Btn primary onClick={newE}><Plus s={12} c={T.bg}/> Ny log</Btn></SH>
-    <Tabs tabs={tabs} active={tab} onChange={setTab}/>
-    {entries.length===0?<Empty text="Ingen logs endnu" action="Tilføj" onAction={newE}/>:entries.map(e=><Card key={e.id} style={{marginBottom:6,padding:12}}>
+
+  // Week helpers
+  const getMonday=(offset=0)=>{const d=new Date();d.setDate(d.getDate()-((d.getDay()+6)%7)+(offset*7));return d.toISOString().slice(0,10)}
+  const getSunday=(offset=0)=>{const m=new Date(getMonday(offset));m.setDate(m.getDate()+6);return m.toISOString().slice(0,10)}
+  const weekNum=(dateStr)=>{const d=new Date(dateStr);d.setHours(0,0,0,0);d.setDate(d.getDate()+3-(d.getDay()+6)%7);const y=new Date(d.getFullYear(),0,4);return Math.round(((d-y)/864e5+y.getDay()+6)/7)}
+
+  // Date range for current view
+  const dateRange=()=>{
+    if(period==="today")return{from:today(),to:today()}
+    if(period==="week")return{from:getMonday(0),to:getSunday(0)}
+    return{from:getMonday(weekOffset),to:getSunday(weekOffset)}
+  }
+
+  // Normalize legacy JSON entry to unified shape
+  const normalizeLegacy=(entry,category)=>{
+    const{id,date,operator,notes,...rest}=entry
+    return{id,log_date:date,operator,category,payload:rest,notes:notes||"",source:"legacy"}
+  }
+
+  // Normalize Supabase entry
+  const normalizeSql=(entry)=>({...entry,source:"supabase"})
+
+  // Merge legacy + Supabase, filter by period and tab
+  const getMergedEntries=()=>{
+    const{from,to}=dateRange()
+    const sqlIds=new Set(sqlLogs.map(l=>l.id))
+
+    // Legacy entries for the active tab, filtered by date range
+    const legacy=(data.haccp?.[tab]||[])
+      .map(e=>normalizeLegacy(e,tab))
+      .filter(e=>e.log_date>=from&&e.log_date<=to)
+      .filter(e=>!sqlIds.has(e.id))
+
+    // Supabase entries filtered by tab
+    const sql=sqlLogs.filter(l=>l.category===tab).map(normalizeSql)
+
+    return[...sql,...legacy].sort((a,b)=>(b.log_date||"").localeCompare(a.log_date||"")||(b.created_at||"").localeCompare(a.created_at||""))
+  }
+
+  // For history "all categories" grouped view
+  const getMergedAll=()=>{
+    const{from,to}=dateRange()
+    const sqlIds=new Set(sqlLogs.map(l=>l.id))
+
+    const legacy=tabs.flatMap(([cat])=>
+      (data.haccp?.[cat]||[]).map(e=>normalizeLegacy(e,cat))
+    ).filter(e=>e.log_date>=from&&e.log_date<=to).filter(e=>!sqlIds.has(e.id))
+
+    const sql=sqlLogs.map(normalizeSql)
+    return[...sql,...legacy].sort((a,b)=>(b.log_date||"").localeCompare(a.log_date||"")||(b.created_at||"").localeCompare(a.created_at||""))
+  }
+
+  // Fetch from Supabase
+  const refresh=async()=>{
+    if(!supabase)return
+    setLoading(true)
+    try{
+      const{from,to}=dateRange()
+      const rows=await getHaccpLogs(supabase,{from,to})
+      setSqlLogs(rows||[])
+    }catch(err){console.error("[DRYP] getHaccpLogs failed:",err)}
+    setLoading(false)
+  }
+  useEffect(()=>{refresh()},[supabase,period,weekOffset])
+
+  // Extract payload fields for form
+  const payloadFields={
+    cleaning:["area","product","disinfected","ok"],
+    temps:["time","fridge1","fridge2","prodRoom","withinLimits","action"],
+    receiving:["supplier","item","qty","temp","packagingOk","approved"],
+    deviations:["description","processStep","batchId","corrective","preventive","closedDate"],
+    maintenance:["equipment","checkType","status","action","nextCheck"]
+  }
+
+  const newE=()=>{
+    const ex={cleaning:{area:"",product:"",disinfected:false,ok:false},temps:{time:"08:00",fridge1:"",fridge2:"",prodRoom:"",withinLimits:false,action:""},receiving:{supplier:"",item:"",qty:"",temp:"",packagingOk:false,approved:false},deviations:{description:"",processStep:"",batchId:"",corrective:"",preventive:"",closedDate:""},maintenance:{equipment:"",checkType:"",status:"OK",action:"",nextCheck:""}}
+    setForm({_isNew:true,date:today(),operator:user?.email?.split("@")[0]||"",notes:"",...ex[tab]})
+    setShow(true)
+  }
+
+  const editEntry=(entry)=>{
+    const flat={_isNew:false,_sqlId:entry.source==="supabase"?entry.id:null,_source:entry.source,date:entry.log_date,operator:entry.operator||"",notes:entry.notes||"",...entry.payload}
+    setForm(flat)
+    setShow(true)
+  }
+
+  const doSave=async()=>{
+    if(!supabase)return
+    setSaving(true)
+    try{
+      const fields=payloadFields[tab]||[]
+      const payload={}
+      fields.forEach(f=>{if(form[f]!==undefined)payload[f]=form[f]})
+      const{data:{user:u}}=await supabase.auth.getUser()
+
+      if(form._isNew){
+        await createHaccpLog(supabase,{user_id:u.id,category:tab,log_date:form.date,operator:form.operator,payload,notes:form.notes||""})
+      }else if(form._sqlId){
+        await updateHaccpLog(supabase,form._sqlId,{category:tab,log_date:form.date,operator:form.operator,payload,notes:form.notes||""})
+      }
+      setShow(false)
+      await refresh()
+    }catch(err){console.error("[DRYP] HACCP save failed:",err);alert("Fejl: "+err.message)}
+    setSaving(false)
+  }
+
+  const doDelete=async(entry)=>{
+    if(!confirm("Slet denne log?"))return
+    if(entry.source==="supabase"){
+      try{await deleteHaccpLog(supabase,entry.id);await refresh()}
+      catch(err){console.error("[DRYP] HACCP delete failed:",err)}
+    }
+  }
+
+  // Can this entry be edited/deleted?
+  const canEdit=(entry)=>{
+    if(entry.source==="legacy")return false
+    if(period==="today")return true
+    if(period==="week")return entry.log_date===today()
+    return false
+  }
+
+  // Render a single entry row
+  const renderRow=(e,showCat=false)=>{
+    const p=e.payload||{}
+    const cat=e.category
+    const editable=canEdit(e)
+    return<Card key={e.id+(e.source||"")} style={{marginBottom:6,padding:12}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:13}}>
-        <div style={{display:"flex",alignItems:"center",gap:10}}><span style={{fontFamily:T.fm,fontSize:12,color:T.dim}}>{e.date}</span>{tab==="cleaning"&&<span>{e.area}</span>}{tab==="temps"&&<span>K1:{e.fridge1}° K2:{e.fridge2}°</span>}{tab==="receiving"&&<span>{e.item} ← {e.supplier}</span>}{tab==="deviations"&&<span style={{color:T.red}}>{e.description?.slice(0,60)}</span>}{tab==="maintenance"&&<span>{e.equipment}</span>}</div>
-        <div style={{display:"flex",gap:6,alignItems:"center"}}>{tab==="cleaning"&&<Dot s={e.ok?"ok":"warn"}/>}{tab==="temps"&&<Dot s={e.withinLimits?"ok":"warn"}/>}{tab==="receiving"&&<Dot s={e.approved?"ok":"warn"}/>}{tab==="deviations"&&<Badge c={e.closedDate?T.ok:T.red}>{e.closedDate?"Lukket":"Åben"}</Badge>}{tab==="maintenance"&&<Badge c={e.status==="OK"?T.ok:T.warn}>{e.status}</Badge>}<Btn small onClick={()=>{setForm(e);setShow(true)}}>✎</Btn><Btn small danger onClick={()=>{if(confirm("Slet?"))update("haccp",prev=>({...prev,[tab]:(prev?.[tab]||[]).filter(x=>x.id!==e.id)}))}}>✕</Btn></div>
+        <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+          <span style={{fontFamily:T.fm,fontSize:12,color:T.dim}}>{e.log_date}</span>
+          {showCat&&<Badge c={T.acc}>{tabLabel[cat]||cat}</Badge>}
+          {e.operator&&<span style={{fontSize:11,color:T.mid}}>{e.operator}</span>}
+          {cat==="cleaning"&&<span>{p.area||"—"}</span>}
+          {cat==="temps"&&<span>K1:{p.fridge1||"—"}° K2:{p.fridge2||"—"}°{p.prodRoom?` Lok:${p.prodRoom}°`:""}</span>}
+          {cat==="receiving"&&<span>{p.item||"—"} {p.supplier?`← ${p.supplier}`:""}{p.temp?` ${p.temp}°C`:""}</span>}
+          {cat==="deviations"&&<span style={{color:T.red}}>{(p.description||"—").slice(0,60)}</span>}
+          {cat==="maintenance"&&<span>{p.equipment||"—"}</span>}
+          {e.source==="legacy"&&<span style={{fontSize:9,color:T.dim,background:T.accDD,padding:"1px 6px",borderRadius:4}}>arkiv</span>}
+        </div>
+        <div style={{display:"flex",gap:6,alignItems:"center"}}>
+          {cat==="cleaning"&&<Dot s={p.ok?"ok":"warn"}/>}
+          {cat==="temps"&&<Dot s={p.withinLimits?"ok":"warn"}/>}
+          {cat==="receiving"&&<Dot s={p.approved?"ok":"warn"}/>}
+          {cat==="deviations"&&<Badge c={p.closedDate?T.ok:T.red}>{p.closedDate?"Lukket":"Åben"}</Badge>}
+          {cat==="maintenance"&&<Badge c={p.status==="OK"?T.ok:T.warn}>{p.status||"—"}</Badge>}
+          {editable&&<Btn small onClick={()=>editEntry(e)}>✎</Btn>}
+          {editable&&<Btn small danger onClick={()=>doDelete(e)}>✕</Btn>}
+        </div>
       </div>
-    </Card>)}
-    {show&&<Modal title={tabs.find(t=>t[0]===tab)?.[1]} onClose={()=>setShow(false)}>
+      {e.notes&&<div style={{fontSize:12,color:T.dim,marginTop:4,fontStyle:"italic"}}>{e.notes}</div>}
+    </Card>
+  }
+
+  // Group entries by date for history view
+  const groupByDate=(entries)=>{
+    const groups={}
+    entries.forEach(e=>{const d=e.log_date||"ukendt";if(!groups[d])groups[d]=[];groups[d].push(e)})
+    return Object.entries(groups).sort((a,b)=>b[0].localeCompare(a[0]))
+  }
+
+  const entries=getMergedEntries()
+  const isHistory=period==="history"
+
+  return<div style={{maxWidth:960}}>
+    <SH title="HACCP Logs" desc="Egenkontrol-dokumentation" tip={tipMap[tab]}>
+      {period==="today"&&<Btn primary onClick={newE}><Plus s={12} c={T.bg}/> Ny log</Btn>}
+    </SH>
+
+    {/* Period selector */}
+    <div style={{display:"flex",gap:0,marginBottom:16}}>
+      {[["today","I dag"],["week","Denne uge"],["history","Historik"]].map(([id,l])=>
+        <button key={id} onClick={()=>{setPeriod(id);if(id==="history")setWeekOffset(0)}} style={{padding:"7px 16px",fontSize:12,fontWeight:period===id?600:400,color:period===id?T.bg:T.mid,background:period===id?T.acc:"transparent",border:`1px solid ${period===id?T.acc:T.brd}`,borderRadius:id==="today"?"6px 0 0 6px":id==="history"?"0 6px 6px 0":"0",cursor:"pointer"}}>{l}</button>
+      )}
+    </div>
+
+    {/* Week navigator for history */}
+    {isHistory&&<div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16}}>
+      <button onClick={()=>setWeekOffset(w=>w-1)} style={{background:"none",color:T.acc,fontSize:16,cursor:"pointer",padding:"4px 8px"}}>←</button>
+      <div style={{fontSize:13,fontWeight:600}}>Uge {weekNum(getMonday(weekOffset))} · {getMonday(weekOffset)} — {getSunday(weekOffset)}</div>
+      <button onClick={()=>setWeekOffset(w=>Math.min(w+1,0))} disabled={weekOffset>=0} style={{background:"none",color:weekOffset>=0?T.dim:T.acc,fontSize:16,cursor:weekOffset>=0?"not-allowed":"pointer",padding:"4px 8px"}}>→</button>
+      {weekOffset<0&&<button onClick={()=>setWeekOffset(0)} style={{background:"none",color:T.acc,fontSize:11,cursor:"pointer",fontWeight:600}}>Gå til nu</button>}
+    </div>}
+
+    {/* Tabs — shown for today and week views */}
+    {!isHistory&&<Tabs tabs={tabs} active={tab} onChange={setTab}/>}
+
+    {loading&&<div style={{color:T.dim,fontSize:13,padding:20}}>Indlæser...</div>}
+
+    {/* Today + Week: tab-filtered list */}
+    {!isHistory&&!loading&&(entries.length===0
+      ?<Empty text={period==="today"?"Ingen logs i dag":"Ingen logs denne uge"} action={period==="today"?"Tilføj":undefined} onAction={period==="today"?newE:undefined}/>
+      :entries.map(e=>renderRow(e))
+    )}
+
+    {/* History: all categories, grouped by date */}
+    {isHistory&&!loading&&(()=>{
+      const all=getMergedAll()
+      if(all.length===0)return<Empty text={`Ingen logs i uge ${weekNum(getMonday(weekOffset))}`}/>
+      const groups=groupByDate(all)
+      return groups.map(([date,items])=><div key={date} style={{marginBottom:18}}>
+        <div style={{fontSize:11,fontWeight:700,color:T.dim,letterSpacing:".1em",textTransform:"uppercase",marginBottom:6,paddingBottom:4,borderBottom:`1px solid ${T.brdL}`}}>
+          {new Date(date+"T12:00:00").toLocaleDateString("da-DK",{weekday:"long",day:"numeric",month:"long"})}
+        </div>
+        {items.map(e=>renderRow(e,true))}
+      </div>)
+    })()}
+
+    {/* Entry form modal — same fields as before */}
+    {show&&<Modal title={tabs.find(t=>t[0]===tab)?.[1]||"Log"} onClose={()=>setShow(false)}>
       <Field label="Dato"><input type="date" value={form.date} onChange={e=>setForm({...form,date:e.target.value})}/></Field>
       <Field label="Operatør"><input value={form.operator} onChange={e=>setForm({...form,operator:e.target.value})}/></Field>
       {tab==="cleaning"&&<><Field label="Område"><select value={form.area} onChange={e=>setForm({...form,area:e.target.value})}><option value="">Vælg...</option>{["Produktionsbord","Infusionskar","Filtreringsudstyr","Aftapningsudstyr","Gulv","Håndvask","Afløb"].map(a=><option key={a}>{a}</option>)}</select></Field><Field label="Middel"><input value={form.product} onChange={e=>setForm({...form,product:e.target.value})}/></Field><Check checked={form.disinfected} onChange={v=>setForm({...form,disinfected:v})} label="Desinficeret"/><div style={{marginTop:8}}><Check checked={form.ok} onChange={v=>setForm({...form,ok:v})} label="Godkendt"/></div></>}
@@ -520,7 +727,7 @@ function HACCPLogs({data,update}){
       {tab==="deviations"&&<><Field label="Beskrivelse"><textarea value={form.description} onChange={e=>setForm({...form,description:e.target.value})}/></Field><Field label="Procestrin"><input value={form.processStep} onChange={e=>setForm({...form,processStep:e.target.value})}/></Field><Field label="Batch"><input value={form.batchId} onChange={e=>setForm({...form,batchId:e.target.value})}/></Field><Field label="Korrigerende handling"><textarea value={form.corrective} onChange={e=>setForm({...form,corrective:e.target.value})}/></Field><Field label="Forebyggende"><textarea value={form.preventive} onChange={e=>setForm({...form,preventive:e.target.value})}/></Field><Field label="Afsluttet"><input type="date" value={form.closedDate} onChange={e=>setForm({...form,closedDate:e.target.value})}/></Field></>}
       {tab==="maintenance"&&<><Field label="Udstyr"><input value={form.equipment} onChange={e=>setForm({...form,equipment:e.target.value})}/></Field><Field label="Type"><input value={form.checkType} onChange={e=>setForm({...form,checkType:e.target.value})}/></Field><Field label="Status"><select value={form.status} onChange={e=>setForm({...form,status:e.target.value})}><option>OK</option><option>Fejl</option></select></Field><Field label="Handling"><textarea value={form.action} onChange={e=>setForm({...form,action:e.target.value})}/></Field><Field label="Næste kontrol"><input type="date" value={form.nextCheck} onChange={e=>setForm({...form,nextCheck:e.target.value})}/></Field></>}
       <Field label="Noter"><textarea value={form.notes} onChange={e=>setForm({...form,notes:e.target.value})}/></Field>
-      <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn onClick={()=>setShow(false)}>Annuller</Btn><Btn primary onClick={doSave}>✓ Gem</Btn></div>
+      <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn onClick={()=>setShow(false)}>Annuller</Btn><Btn primary onClick={doSave} disabled={saving}>{saving?"Gemmer...":"✓ Gem"}</Btn></div>
     </Modal>}
   </div>
 }
