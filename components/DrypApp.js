@@ -325,6 +325,7 @@ function Batches({data,update,supabase,batchNav,setBatchNav}){
   const[newLot,setNewLot]=useState({lotId:"",qtyUsed:""})
   const[savingLot,setSavingLot]=useState(false)
   const[actualQty,setActualQty]=useState("")
+  const[qtyStatus,setQtyStatus]=useState("")
 
   const refresh=()=>{if(!supabase)return;getBatches(supabase).then(rows=>{if(rows&&rows.length>0)setSqlBatches(rows)}).catch(()=>{})}
   useEffect(()=>{refresh()},[supabase])
@@ -358,8 +359,9 @@ function Batches({data,update,supabase,batchNav,setBatchNav}){
   const saveActualQty=async(val)=>{
     const n=parseInt(val)
     if(!n||n===(selected?.actual_qty))return
-    try{await updateBatchStatus(supabase,selectedId,selected.status,{actual_qty:n})}
-    catch(err){console.error("[DRYP] saveActualQty failed:",err)}
+    setQtyStatus("Gemmer...")
+    try{await updateBatchStatus(supabase,selectedId,selected.status,{actual_qty:n});setQtyStatus("Gemt ✓");setTimeout(()=>setQtyStatus(""),2000)}
+    catch(err){console.error("[DRYP] saveActualQty failed:",err);setQtyStatus("Fejl");setTimeout(()=>setQtyStatus(""),3000)}
   }
 
   const addLotUsage=async()=>{
@@ -456,7 +458,7 @@ function Batches({data,update,supabase,batchNav,setBatchNav}){
                   <div style={{fontSize:11,color:T.dim,marginBottom:4,fontWeight:600,letterSpacing:".04em",textTransform:"uppercase"}}>Mængde{activeLots.find(l=>l.id===newLot.lotId)?.unit&&<span style={{color:T.acc,marginLeft:4,textTransform:"none"}}>({activeLots.find(l=>l.id===newLot.lotId).unit})</span>}</div>
                   <input type="number" step=".01" min="0" value={newLot.qtyUsed} onChange={e=>setNewLot({...newLot,qtyUsed:e.target.value})} style={{width:"100%"}}/>
                 </div>
-                <Btn primary disabled={savingLot||!newLot.lotId||!newLot.qtyUsed} onClick={addLotUsage} style={{padding:"10px 18px"}}>{savingLot?"Gemmer...":"+ Registrér"}</Btn>
+                <Btn primary disabled={savingLot||!newLot.lotId||!newLot.qtyUsed} onClick={addLotUsage} style={{padding:"10px 18px"}}>{savingLot?"Gemmer...":"+ Registrér lot"}</Btn>
               </div>
             </div>
           }
@@ -469,6 +471,7 @@ function Batches({data,update,supabase,batchNav,setBatchNav}){
           </div>
           <input type="number" min="0" value={actualQty} onChange={e=>setActualQty(e.target.value)} onBlur={e=>saveActualQty(e.target.value)} placeholder="antal" style={{width:90}} disabled={selected.status==="completed"}/>
           <span style={{fontSize:12,color:T.dim}}>stk</span>
+          {qtyStatus&&<span style={{fontSize:11,color:qtyStatus==="Fejl"?T.red:qtyStatus==="Gemmer..."?T.dim:T.ok,marginLeft:4,fontWeight:500}}>{qtyStatus}</span>}
         </div>
       </div>
 
@@ -664,8 +667,8 @@ function HACCPLogs({data,update,supabase,user}){
           {cat==="receiving"&&<Dot s={p.approved?"ok":"warn"}/>}
           {cat==="deviations"&&<Badge c={p.closedDate?T.ok:T.red}>{p.closedDate?"Lukket":"Åben"}</Badge>}
           {cat==="maintenance"&&<Badge c={p.status==="OK"?T.ok:T.warn}>{p.status||"—"}</Badge>}
-          {editable&&<Btn small onClick={()=>editEntry(e)}>✎</Btn>}
-          {editable&&<Btn small danger onClick={()=>doDelete(e)}>✕</Btn>}
+          {editable&&<Btn small onClick={()=>editEntry(e)}>✎ Rediger</Btn>}
+          {editable&&<Btn small danger onClick={()=>doDelete(e)}>✕ Slet</Btn>}
         </div>
       </div>
       {e.notes&&<div style={{fontSize:12,color:T.dim,marginTop:4,fontStyle:"italic"}}>{e.notes}</div>}
@@ -791,7 +794,7 @@ function Inventory({data,update,supabase}){
     {cats.map(cat=><div key={cat} style={{marginBottom:22}}><div style={{fontSize:11,fontWeight:700,color:T.dim,letterSpacing:".1em",textTransform:"uppercase",marginBottom:10,paddingBottom:4,borderBottom:`1px solid ${T.brdL}`,display:"flex",alignItems:"center",justifyContent:"space-between"}}><span>{cat}</span>{cat==="Råvare"&&<span style={{fontSize:10,color:T.acc,fontWeight:500,letterSpacing:".02em",textTransform:"none"}}>Opret lots for at spore råvareforbrug i produktion</span>}</div>
       {data.inventory.filter(i=>i.cat===cat).map(item=>{const low=item.qty<item.min;return<Card key={item.id} style={{marginBottom:6,padding:12}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><div><div style={{fontSize:14,fontWeight:500}}>{low&&<span style={{color:T.red}}>⚠ </span>}{item.name}</div><div style={{fontSize:12,color:T.dim}}>Min: {item.min} · Lead: {item.leadDays}d{item.supplier&&` · ${item.supplier}`} · {fk(item.costPer)}/{item.unit}</div></div>
-          <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>{eId===item.id?<div style={{display:"flex",gap:4}}><input type="number" value={qv} onChange={e=>setQv(e.target.value)} style={{width:70}} autoFocus onKeyDown={e=>{if(e.key==="Enter"){update("inventory",p=>p.map(i=>i.id===item.id?{...i,qty:parseFloat(qv)||0}:i));setEId(null)}}}/><Btn small primary onClick={()=>{update("inventory",p=>p.map(i=>i.id===item.id?{...i,qty:parseFloat(qv)||0}:i));setEId(null)}}>✓</Btn></div>:<button onClick={()=>{setEId(item.id);setQv(String(item.qty))}} style={{background:"none",color:low?T.red:T.txt,cursor:"pointer"}}><span style={{fontSize:20,fontFamily:T.fm,fontWeight:700}}>{item.qty}</span><span style={{fontSize:11,color:T.dim,marginLeft:3}}>{item.unit}</span></button>}{item.cat==="Råvare"&&<Btn small onClick={()=>{setLotForm({item_id:item.id,item_name:item.name,item_unit:item.unit,lot_number:"",supplier:"",qty_received:"",received_date:today(),expiry_date:""});setShowLot(true)}} style={{color:T.acc,borderColor:T.acc}}>+ Opret lot</Btn>}<Btn small onClick={()=>{setForm(item);setShow(true)}}>✎ Rediger</Btn><Btn small danger onClick={()=>{if(confirm(`Slet "${item.name}"?`))update("inventory",p=>p.filter(x=>x.id!==item.id))}}>✕ Slet</Btn></div></div>
+          <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>{eId===item.id?<div style={{display:"flex",gap:4}}><input type="number" value={qv} onChange={e=>setQv(e.target.value)} style={{width:70}} autoFocus onKeyDown={e=>{if(e.key==="Enter"){update("inventory",p=>p.map(i=>i.id===item.id?{...i,qty:parseFloat(qv)||0}:i));setEId(null)}}}/><Btn small primary onClick={()=>{update("inventory",p=>p.map(i=>i.id===item.id?{...i,qty:parseFloat(qv)||0}:i));setEId(null)}}>✓ Gem</Btn></div>:<button onClick={()=>{setEId(item.id);setQv(String(item.qty))}} style={{background:"none",color:low?T.red:T.txt,cursor:"pointer"}}><span style={{fontSize:20,fontFamily:T.fm,fontWeight:700}}>{item.qty}</span><span style={{fontSize:11,color:T.dim,marginLeft:3}}>{item.unit}</span></button>}{item.cat==="Råvare"&&<Btn small onClick={()=>{setLotForm({item_id:item.id,item_name:item.name,item_unit:item.unit,lot_number:"",supplier:"",qty_received:"",received_date:today(),expiry_date:""});setShowLot(true)}} style={{color:T.acc,borderColor:T.acc}}>+ Opret lot</Btn>}<Btn small onClick={()=>{setForm(item);setShow(true)}}>✎ Rediger</Btn><Btn small danger onClick={()=>{if(confirm(`Slet "${item.name}"?`))update("inventory",p=>p.filter(x=>x.id!==item.id))}}>✕ Slet</Btn></div></div>
         <div style={{marginTop:6,height:4,background:T.input,borderRadius:2,overflow:"hidden"}}><div style={{height:"100%",width:`${Math.min(item.qty/(item.min||1)*100,100)}%`,background:low?T.red:item.qty<item.min*1.5?T.warn:T.ok,borderRadius:2}}/></div>
         {item.cat==="Råvare"&&activeLots.filter(l=>l.item_id===item.id).length>0&&<div style={{marginTop:8,paddingTop:8,borderTop:`1px solid ${T.brdL}`}}>
           <div style={{fontSize:10,fontWeight:600,color:T.dim,textTransform:"uppercase",letterSpacing:".06em",marginBottom:4}}>Aktive lots</div>
@@ -973,7 +976,7 @@ function Documents({data,update,supabase}){
     <div style={{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap",alignItems:"center"}}>
       <button onClick={()=>setActiveFolder(null)} style={{padding:"6px 14px",borderRadius:20,fontSize:12,fontWeight:!activeFolder?600:400,background:!activeFolder?T.accD:"transparent",color:!activeFolder?T.acc:T.dim,border:`1px solid ${!activeFolder?T.acc+"44":T.brdL}`,cursor:"pointer"}}>Alle ({docs.length})</button>
       {folders.map(f=>{const count=docs.filter(d=>d.folder===f).length;return<button key={f} onClick={()=>setActiveFolder(f)} style={{padding:"6px 14px",borderRadius:20,fontSize:12,fontWeight:activeFolder===f?600:400,background:activeFolder===f?T.accD:"transparent",color:activeFolder===f?T.acc:T.dim,border:`1px solid ${activeFolder===f?T.acc+"44":T.brdL}`,cursor:"pointer"}}>📁 {f} ({count})</button>})}
-      {newFolder?<div style={{display:"flex",gap:4}}><input value={folderName} onChange={e=>setFolderName(e.target.value)} placeholder="Mappenavn" style={{width:140,fontSize:12}} autoFocus onKeyDown={e=>e.key==="Enter"&&addFolder()}/><Btn small primary onClick={addFolder}>✓</Btn><Btn small onClick={()=>setNewFolder(false)}>✕</Btn></div>:
+      {newFolder?<div style={{display:"flex",gap:4}}><input value={folderName} onChange={e=>setFolderName(e.target.value)} placeholder="Mappenavn" style={{width:140,fontSize:12}} autoFocus onKeyDown={e=>e.key==="Enter"&&addFolder()}/><Btn small primary onClick={addFolder}>✓ Opret</Btn><Btn small onClick={()=>setNewFolder(false)}>Annuller</Btn></div>:
       <button onClick={()=>setNewFolder(true)} style={{padding:"6px 14px",borderRadius:20,fontSize:12,color:T.dim,background:"transparent",border:`1px dashed ${T.brdL}`,cursor:"pointer",display:"flex",alignItems:"center",gap:4}}><Plus s={10} c={T.dim}/> Ny mappe</button>}
     </div>
 
