@@ -41,20 +41,27 @@ export default function Home() {
   const [loading, setLoading] = useState(true)
   const supabase = createClient()
 
+  // Shared team data loader — reused by init, realtime, and tab-focus
+  const loadTeamData = async () => {
+    const { data: row } = await supabase
+      .from('team_data')
+      .select('data')
+      .eq('team_id', 'dryp')
+      .single()
+    if (row?.data) setData(row.data)
+  }
+
   // Load user and data
   useEffect(() => {
     async function init() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) { window.location.href = '/login'; return }
       setUser(user)
-
-      // Load shared team data from Supabase
       const { data: row } = await supabase
         .from('team_data')
         .select('data')
         .eq('team_id', 'dryp')
         .single()
-
       setData(row?.data || { ...defaults })
       setLoading(false)
     }
@@ -73,7 +80,11 @@ export default function Home() {
       })
       .subscribe()
 
-    return () => { supabase.removeChannel(channel) }
+    // Tab-focus refetch — catches missed realtime events or large payloads
+    const onVisible = () => { if (document.visibilityState === 'visible') loadTeamData() }
+    document.addEventListener('visibilitychange', onVisible)
+
+    return () => { supabase.removeChannel(channel); document.removeEventListener('visibilitychange', onVisible) }
   }, [])
 
   // Save function — writes to shared team_data
