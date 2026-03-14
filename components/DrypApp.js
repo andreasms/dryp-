@@ -48,7 +48,7 @@ const Check=({checked,onChange,label})=><label style={{display:"flex",alignItems
 const SH=({title,desc,tip,children})=><div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:20}}><div><div style={{fontSize:15,fontWeight:600,marginBottom:desc?4:0}}>{title}</div>{desc&&<div style={{display:"flex",alignItems:"center",fontSize:12,color:T.dim}}>{desc}{tip&&<Tip text={tip}/>}</div>}</div><div style={{display:"flex",gap:8}}>{children}</div></div>
 
 // ═══ MAIN APP ═══
-export default function DrypApp({data,update,save,user,onLogout,supabase}){
+export default function DrypApp({data,update,save,user,onLogout,supabase,saveError,onDismissSaveError}){
   const[page,setPage]=useState("dashboard")
   const[batchNav,setBatchNav]=useState(null)
   const[sb,setSb]=useState(typeof window!=='undefined'?window.innerWidth>900:true)
@@ -77,7 +77,13 @@ export default function DrypApp({data,update,save,user,onLogout,supabase}){
   const Pg={dashboard:Dashboard,production:Production,recipes:Recipes,haccp:HACCPLogs,batches:Batches,customers:Customers,inventory:Inventory,planning:Planning,economy:Economy,mail:Mail,documents:Documents,team:Team,settings:Settings}[page]||Dashboard
   const userName=user?.email?.split('@')[0]||'Bruger'
 
+  useEffect(()=>{if(!saveError)return;const t=setTimeout(()=>onDismissSaveError?.(),8000);return()=>clearTimeout(t)},[saveError,onDismissSaveError])
+
   return<div style={{display:"flex",height:"100vh",overflow:"hidden",fontSize:T.fs,color:T.txt}}>
+    {saveError&&<div style={{position:"fixed",top:0,left:0,right:0,zIndex:9999,background:"#5c1a1a",borderBottom:"2px solid #a33",padding:"10px 20px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:12}} onClick={onDismissSaveError}>
+      <div><div style={{color:"#fdd",fontSize:13,fontWeight:600}}>Ændringen blev ikke gemt</div><div style={{color:"#c99",fontSize:11,marginTop:2}}>{saveError}</div></div>
+      <button style={{color:"#c99",fontSize:16,cursor:"pointer",background:"none",padding:"4px 8px"}}>✕</button>
+    </div>}
     <div style={{width:sb?220:0,minWidth:sb?220:0,background:T.card,borderRight:`1px solid ${T.brdL}`,display:"flex",flexDirection:"column",transition:"width .25s ease, min-width .25s ease",overflow:"hidden",position:isMobile?"fixed":"relative",zIndex:100,height:"100%"}}>
       <div style={{padding:"20px 16px 8px"}}><div style={{fontFamily:"'Archivo Black',sans-serif",fontSize:20,color:T.acc,letterSpacing:".12em"}}>DRYP</div><div style={{fontSize:9,color:T.dim,letterSpacing:".15em",textTransform:"uppercase",marginTop:2}}>Skagen · DK</div></div>
       <nav style={{padding:"10px 8px",flex:1,overflow:"auto"}}>

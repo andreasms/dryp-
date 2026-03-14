@@ -39,6 +39,7 @@ export default function Home() {
   const [user, setUser] = useState(null)
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [saveError, setSaveError] = useState(null)
   const supabase = createClient()
   const savingRef = useRef(false)
 
@@ -92,9 +93,10 @@ export default function Home() {
   }, [])
 
   // Save function — writes to shared team_data
+  // Returns true on success, false on failure
   const save = useCallback(async (newData) => {
     setData(newData)
-    if (!user) return
+    if (!user) return true
     savingRef.current = true
     try {
       const { error } = await supabase
@@ -111,7 +113,11 @@ export default function Home() {
           blobBytes: blobSize,
           fullError: error
         })
+        setSaveError(error.message || 'Ukendt fejl')
+        return false
       }
+      setSaveError(null)
+      return true
     } finally {
       savingRef.current = false
     }
@@ -134,5 +140,5 @@ export default function Home() {
     </div>
   )
 
-  return <DrypApp data={data} update={update} save={save} user={user} onLogout={handleLogout} supabase={supabase} />
+  return <DrypApp data={data} update={update} save={save} user={user} onLogout={handleLogout} supabase={supabase} saveError={saveError} onDismissSaveError={() => setSaveError(null)} />
 }
