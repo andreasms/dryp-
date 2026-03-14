@@ -22,6 +22,8 @@ const defaults = {
     { id: "e2", name: "Flasker 500ml", unit: "stk", qty: 0, min: 20, cat: "Emballage", leadDays: 14, supplier: "Hedenhus", costPer: 12 },
     { id: "e3", name: "Etiketter", unit: "stk", qty: 0, min: 50, cat: "Emballage", leadDays: 10, supplier: "", costPer: 3 },
     { id: "e4", name: "Kapsler/låg", unit: "stk", qty: 0, min: 50, cat: "Emballage", leadDays: 14, supplier: "Hedenhus", costPer: 1.5 },
+    { id: "dild-250", name: "Dild Olie 250ml", unit: "stk", qty: 0, min: 0, cat: "Færdigvare", leadDays: 0, supplier: "", costPer: 0 },
+    { id: "dild-500", name: "Dild Olie 500ml", unit: "stk", qty: 0, min: 0, cat: "Færdigvare", leadDays: 0, supplier: "", costPer: 0 },
   ],
   haccp: { cleaning: [], temps: [], deviations: [], receiving: [], maintenance: [] },
   prices: { retail250: 129, wholesale250: 71, retail500: 219, wholesale500: 120, overhead: 500 },
@@ -33,6 +35,20 @@ const defaults = {
     pages: [{ id: "welcome", title: "Velkommen til DRYP", content: "Her kan teamet skrive noter, mødereferater, idéer og planer.\n\nBrug + knappen til at oprette nye sider.", updated: new Date().toISOString().slice(0, 10), author: "Andreas" }],
     messages: []
   },
+}
+
+// Ensure every recipe has a matching finished-goods inventory item
+function ensureFinishedGoods(d) {
+  const inv = d.inventory || []
+  const recipes = d.recipes || []
+  let added = false
+  for (const r of recipes) {
+    if (!inv.find(i => i.id === r.id)) {
+      inv.push({ id: r.id, name: r.name, unit: "stk", qty: 0, min: 0, cat: "Færdigvare", leadDays: 0, supplier: "", costPer: 0 })
+      added = true
+    }
+  }
+  return added ? { ...d, inventory: [...inv] } : d
 }
 
 export default function Home() {
@@ -52,7 +68,7 @@ export default function Home() {
       .select('data')
       .eq('team_id', 'dryp')
       .single()
-    if (row?.data) setData(row.data)
+    if (row?.data) setData(ensureFinishedGoods(row.data))
   }
 
   // Load user and data
@@ -66,7 +82,7 @@ export default function Home() {
         .select('data')
         .eq('team_id', 'dryp')
         .single()
-      setData(row?.data || { ...defaults })
+      setData(ensureFinishedGoods(row?.data || { ...defaults }))
       setLoading(false)
     }
     init()
@@ -81,7 +97,7 @@ export default function Home() {
       }, (payload) => {
         if (!payload?.new?.data) return
         if (savingRef.current) return
-        setData(payload.new.data)
+        setData(ensureFinishedGoods(payload.new.data))
       })
       .subscribe()
 

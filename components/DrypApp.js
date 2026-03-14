@@ -4,6 +4,7 @@ import { createBatch, getBatches, updateBatchStatus } from '@/lib/db/batches'
 import { createLot, getActiveLots, decrementLotQty } from '@/lib/db/lots'
 import { getBatchLotUsage, createBatchLotUsage } from '@/lib/db/batchLotUsage'
 import { recordMovement } from '@/lib/db/movements'
+import { appendEvent } from '@/lib/db/batchEvents'
 import { createHaccpLog, getHaccpLogs, updateHaccpLog, deleteHaccpLog } from '@/lib/db/haccpLogs'
 import { getWikiPages, createWikiPage, updateWikiPage, deleteWikiPage } from '@/lib/db/wikiPages'
 import { getTeamMessages, sendTeamMessage } from '@/lib/db/teamMessages'
@@ -328,6 +329,7 @@ function Batches({data,update,supabase,batchNav,setBatchNav}){
   const[qtyStatus,setQtyStatus]=useState("")
   const[showLotModal,setShowLotModal]=useState(false)
   const[lotItemId,setLotItemId]=useState("")
+  const[completionErr,setCompletionErr]=useState("")
 
   const refresh=()=>{if(!supabase)return;getBatches(supabase).then(rows=>{if(rows&&rows.length>0)setSqlBatches(rows)}).catch(()=>{})}
   useEffect(()=>{refresh()},[supabase])
@@ -356,6 +358,22 @@ function Batches({data,update,supabase,batchNav,setBatchNav}){
     try{await updateBatchStatus(supabase,selectedId,status,extras);refresh();setSelectedId(null)}
     catch(err){console.error("[DRYP] updateBatchStatus failed:",err)}
     finally{setActing(false)}
+  }
+
+  const tryComplete=async()=>{
+    setCompletionErr("")
+    const bom=selected?.recipe_snapshot?.bom||[]
+    const rawItems=bom.filter(b=>{const inv=data.inventory.find(i=>i.id===b.itemId);return inv&&inv.cat==="Råvare"})
+    const missingItems=rawItems.filter(b=>!lotUsage.some(lu=>lu.item_id===b.itemId))
+    if(missingItems.length>0){const names=missingItems.map(b=>{const inv=data.inventory.find(i=>i.id===b.itemId);return inv?.name||b.itemId}).join(", ");setCompletionErr(`Registrér råvareforbrug for: ${names}`);return}
+    const qty=parseInt(actualQty)||selected?.actual_qty
+    if(!qty){setCompletionErr("Angiv faktisk produceret antal før afslutning");return}
+    await doAction("completed",{completed_at:new Date().toISOString(),actual_qty:qty})
+    try{
+      const{data:{user:u}}=await supabase.auth.getUser()
+      await recordMovement(supabase,{user_id:u.id,item_id:selected.recipe_id,batch_id:selectedId,movement_type:"produce",qty,unit:"stk",reference:selected.batch_number,notes:"Batch afsluttet"})
+      await appendEvent(supabase,{batch_id:selectedId,user_id:u.id,event_type:"completed",payload:{actual_qty:qty,unit:"stk"},created_by:u.email||u.id})
+    }catch(err){console.error("[DRYP] batch completion side-effects failed:",err)}
   }
 
   const saveActualQty=async(val)=>{
@@ -414,7 +432,7 @@ function Batches({data,update,supabase,batchNav,setBatchNav}){
         </Card>
       })}
 
-    {selected&&<Modal title={`Batch · ${selected.batch_number}`} onClose={()=>setSelectedId(null)} wide>
+    {selected&&<Modal title={`Batch · ${selected.batch_number}`} onClose={()=>{setSelectedId(null);setCompletionErr("")}} wide>
 
       {/* ─── 1. OVERBLIK ─── */}
       <div style={{fontSize:10,fontWeight:700,color:T.dim,textTransform:"uppercase",letterSpacing:".1em",marginBottom:12}}>1 · Overblik</div>
@@ -437,10 +455,12 @@ function Batches({data,update,supabase,batchNav,setBatchNav}){
         <div style={{fontSize:10,fontWeight:700,color:T.dim,textTransform:"uppercase",letterSpacing:".08em",marginBottom:3}}>Næste skridt</div><div style={{fontSize:13,color:T.txt,fontWeight:500}}>Angiv faktisk produceret antal nedenfor</div>
       </div>;if(s==="in_progress"&&hasLots&&hasQty)return<div style={{background:T.accDD,borderLeft:`3px solid ${T.ok}`,borderRadius:8,padding:"12px 16px",marginBottom:18,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
         <div><div style={{fontSize:10,fontWeight:700,color:T.dim,textTransform:"uppercase",letterSpacing:".08em",marginBottom:3}}>Næste skridt</div><div style={{fontSize:13,color:T.txt,fontWeight:500}}>Batch klar til afslutning</div></div>
-        <Btn primary disabled={acting} onClick={()=>doAction("completed",{completed_at:new Date().toISOString(),...(actualQty?{actual_qty:parseInt(actualQty)}:{})})}>✓ Afslut batch</Btn>
+        <Btn primary disabled={acting} onClick={tryComplete}>✓ Afslut batch</Btn>
       </div>;if(s==="completed")return<div style={{background:T.accDD,borderLeft:`3px solid ${T.ok}`,borderRadius:8,padding:"12px 16px",marginBottom:18}}>
         <div style={{fontSize:13,color:T.ok,fontWeight:500}}>✓ Batch er afsluttet{selected.completed_at&&<span style={{color:T.dim,fontWeight:400,marginLeft:8,fontSize:11}}>{selected.completed_at.slice(0,10)}</span>}</div>
       </div>;return null})()}
+
+      {completionErr&&<div style={{background:"#3a1c1c",border:`1px solid ${T.red}`,borderRadius:8,padding:"10px 14px",marginBottom:14,fontSize:12,color:"#ff9b9b"}}>{completionErr}</div>}
 
       {/* ─── 2. PRODUKTION ─── */}
       <div style={{borderTop:`1px solid ${T.brdL}`,paddingTop:16,marginBottom:22}}>
@@ -449,7 +469,7 @@ function Batches({data,update,supabase,batchNav,setBatchNav}){
         <div style={{marginBottom:16}}>
           {selected.status==="planned"&&<Btn primary disabled={acting} onClick={()=>doAction("in_progress",{started_at:new Date().toISOString()})}>▶ Start batch</Btn>}
           {selected.status==="in_progress"&&<div style={{display:"flex",gap:10,alignItems:"center"}}>
-            <Btn primary disabled={acting} onClick={()=>doAction("completed",{completed_at:new Date().toISOString(),...(actualQty?{actual_qty:parseInt(actualQty)}:{})})}>✓ Afslut batch</Btn>
+            <Btn primary disabled={acting} onClick={tryComplete}>✓ Afslut batch</Btn>
             <span style={{fontSize:12,color:T.dim}}>Registrér råvarer og faktisk antal nedenfor</span>
           </div>}
           {selected.status==="completed"&&<div style={{display:"flex",alignItems:"center",gap:8,fontSize:13,color:T.ok}}>✓ Batch afsluttet {selected.completed_at&&<span style={{fontSize:11,color:T.dim}}>{selected.completed_at.slice(0,10)}</span>}</div>}
