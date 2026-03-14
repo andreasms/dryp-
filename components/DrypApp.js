@@ -119,25 +119,34 @@ function Dashboard({data,supabase,setPage}){
     <div style={{marginBottom:20}}>
       <div style={{fontSize:10,fontWeight:700,color:T.dim,letterSpacing:".1em",textTransform:"uppercase",marginBottom:8}}>Hurtige handlinger</div>
       <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
-        <Btn primary onClick={()=>setPage("production")}><span style={{marginRight:5}}>▶</span>Start produktion</Btn>
-        <Btn onClick={()=>setPage("inventory")}><span style={{marginRight:5}}>+</span>Opret råvarelot</Btn>
-        <Btn onClick={()=>setPage("batches")}><span style={{marginRight:5}}>⬢</span>Batches i gang{sqlStats?.active>0&&<span style={{marginLeft:6,background:T.warn,color:"#000",borderRadius:9,padding:"1px 6px",fontSize:10,fontWeight:700}}>{sqlStats.active}</span>}</Btn>
-        <Btn onClick={()=>setPage("inventory")}><span style={{marginRight:5}}>▦</span>Se lageralarmer{low.length>0&&<span style={{marginLeft:6,background:T.red,color:"#fff",borderRadius:9,padding:"1px 6px",fontSize:10,fontWeight:700}}>{low.length}</span>}</Btn>
+        <Btn primary onClick={()=>setPage("production")}>Start produktion</Btn>
+        <Btn onClick={()=>setPage("inventory")}>Opret lot</Btn>
+        <Btn onClick={()=>setPage("batches")}>Se batches i gang{sqlStats?.active>0&&<span style={{marginLeft:6,background:T.warn,color:"#000",borderRadius:9,padding:"1px 6px",fontSize:10,fontWeight:700}}>{sqlStats.active}</span>}</Btn>
+        <Btn onClick={()=>setPage("inventory")}>Se lageralarmer{low.length>0&&<span style={{marginLeft:6,background:T.red,color:"#fff",borderRadius:9,padding:"1px 6px",fontSize:10,fontWeight:700}}>{low.length}</span>}</Btn>
       </div>
     </div>
 
     {(low.length>0||openDevs.length>0||pendingOrders.length>0)&&<Card style={{marginBottom:20,borderLeft:`4px solid ${T.warn}`,background:T.accDD}}>
       <div style={{fontSize:14,fontWeight:600,color:T.warn,marginBottom:10}}>⚡ Kræver opmærksomhed</div>
-      {low.length>0&&<div style={{fontSize:13,marginBottom:6,color:T.txt}}>🔴 <strong>{low.length} lagervare{low.length>1?"r":""}</strong> under minimum: {low.map(i=>i.name).join(", ")}</div>}
-      {openDevs.length>0&&<div style={{fontSize:13,marginBottom:6,color:T.txt}}>⚠️ <strong>{openDevs.length} åben{openDevs.length>1?"e":""} afvigelse{openDevs.length>1?"r":""}</strong> i HACCP</div>}
-      {pendingOrders.length>0&&<div style={{fontSize:13,color:T.txt}}>📦 <strong>{pendingOrders.length} ordre{pendingOrders.length>1?"r":""}</strong> afventer levering</div>}
+      {low.length>0&&<div style={{fontSize:13,marginBottom:6,color:T.txt,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+        <span>🔴 <strong>{low.length} lagervare{low.length>1?"r":""}</strong> under minimum: {low.map(i=>i.name).join(", ")}</span>
+        <button onClick={()=>setPage("inventory")} style={{background:"none",color:T.acc,fontSize:12,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap",marginLeft:12}}>Se lager →</button>
+      </div>}
+      {openDevs.length>0&&<div style={{fontSize:13,marginBottom:6,color:T.txt,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+        <span>⚠️ <strong>{openDevs.length} åben{openDevs.length>1?"e":""} afvigelse{openDevs.length>1?"r":""}</strong> i HACCP</span>
+        <button onClick={()=>setPage("haccp")} style={{background:"none",color:T.acc,fontSize:12,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap",marginLeft:12}}>Se afvigelser →</button>
+      </div>}
+      {pendingOrders.length>0&&<div style={{fontSize:13,color:T.txt,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+        <span>📦 <strong>{pendingOrders.length} ordre{pendingOrders.length>1?"r":""}</strong> afventer levering</span>
+        <button onClick={()=>setPage("customers")} style={{background:"none",color:T.acc,fontSize:12,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap",marginLeft:12}}>Se ordrer →</button>
+      </div>}
     </Card>}
 
     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
-      <Card><div style={{fontSize:13,fontWeight:600,marginBottom:12}}>Aktive produkter</div>{(data.recipes||[]).filter(r=>r.active).length===0?<div style={{color:T.dim,fontSize:13}}>Ingen aktive opskrifter</div>:(data.recipes||[]).filter(r=>r.active).map(r=>{
+      <Card><div style={{fontSize:13,fontWeight:600,marginBottom:12}}>Aktive produkter</div>{(data.recipes||[]).filter(r=>r.active).length===0?<div style={{color:T.dim,fontSize:13,lineHeight:1.6}}>Ingen opskrifter endnu.<br/><button onClick={()=>setPage("recipes")} style={{background:"none",color:T.acc,fontSize:12,fontWeight:600,cursor:"pointer",marginTop:4}}>Opret en opskrift →</button></div>:(data.recipes||[]).filter(r=>r.active).map(r=>{
         const rawCost=(r.bom||[]).filter(b=>{const inv=data.inventory.find(x=>x.id===b.itemId);return inv?.cat==="Råvare"}).reduce((s,b)=>{const inv=data.inventory.find(x=>x.id===b.itemId);return s+(inv?.costPer||0)*b.qty},0)
         return<div key={r.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderBottom:`1px solid ${T.brdL}`,fontSize:13}}><span>{r.name}</span><div style={{display:"flex",gap:8,alignItems:"center"}}><span style={{fontSize:11,color:T.dim,fontFamily:T.fm}}>Råvare: {rawCost.toFixed(0)} kr</span><Badge c={T.ok}>Aktiv</Badge></div></div>})}</Card>
-      <Card><div style={{fontSize:13,fontWeight:600,marginBottom:12}}>Seneste produktioner</div>{data.productions.length===0?<div style={{color:T.dim,fontSize:13}}>Ingen endnu</div>:[...data.productions].sort((a,b)=>(b.date||"").localeCompare(a.date||"")).slice(0,5).map(p=><div key={p.id} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:`1px solid ${T.brdL}`}}><div><span style={{fontSize:13,fontWeight:500}}>{p.batchId}</span><span style={{fontSize:12,color:T.dim,marginLeft:8}}>{p.recipeName} · {p.date}</span></div><div style={{display:"flex",gap:5}}><Badge c={p.ccp1Ok?T.ok:T.red}>CCP1</Badge><Badge c={p.ccp2Ok?T.ok:T.red}>CCP2</Badge></div></div>)}</Card>
+      <Card><div style={{fontSize:13,fontWeight:600,marginBottom:12}}>Seneste produktioner</div>{data.productions.length===0?<div style={{color:T.dim,fontSize:13,lineHeight:1.6}}>Ingen produktioner registreret endnu.<br/><button onClick={()=>setPage("production")} style={{background:"none",color:T.acc,fontSize:12,fontWeight:600,cursor:"pointer",marginTop:4}}>Start en produktion →</button></div>:[...data.productions].sort((a,b)=>(b.date||"").localeCompare(a.date||"")).slice(0,5).map(p=><div key={p.id} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:`1px solid ${T.brdL}`}}><div><span style={{fontSize:13,fontWeight:500}}>{p.batchId}</span><span style={{fontSize:12,color:T.dim,marginLeft:8}}>{p.recipeName} · {p.date}</span></div><div style={{display:"flex",gap:5}}><Badge c={p.ccp1Ok?T.ok:T.red}>CCP1</Badge><Badge c={p.ccp2Ok?T.ok:T.red}>CCP2</Badge></div></div>)}</Card>
     </div>
   </div>
 }
