@@ -100,18 +100,20 @@ export default function DrypApp({data,update,save,user,onLogout,supabase}){
 }
 
 // ═══ DASHBOARD — cleaner, priority-focused ═══
-function Dashboard({data,supabase,setPage}){
+function Dashboard({data,supabase,setPage,setBatchNav}){
   const mo=today().slice(0,7);const prods=data.productions.filter(p=>p.date?.startsWith(mo))
   const rev=data.orders.filter(o=>o.date?.startsWith(mo)).reduce((s,o)=>s+(parseFloat(o.price)||0)*(parseInt(o.qty)||0),0)
   const low=data.inventory.filter(i=>i.qty<i.min)
   const ccpOk=prods.filter(p=>p.ccp1Ok&&p.ccp2Ok).length
   const openDevs=(data.haccp?.deviations||[]).filter(d=>!d.closedDate)
   const pendingOrders=(data.orders||[]).filter(o=>o.status==="bestilt")
-  const[sqlStats,setSqlStats]=useState(null)
-  useEffect(()=>{if(!supabase)return;getBatches(supabase).then(rows=>{if(rows)setSqlStats({active:rows.filter(b=>b.status==="in_progress").length,planned:rows.filter(b=>b.status==="planned").length,total:rows.length})}).catch(()=>{})},[supabase])
+  const[sqlBatches,setSqlBatches]=useState(null)
+  useEffect(()=>{if(!supabase)return;getBatches(supabase).then(rows=>{if(rows)setSqlBatches(rows)}).catch(()=>{})},[supabase])
+  const activeBatches=(sqlBatches||[]).filter(b=>b.status==="in_progress")
+  const plannedCount=(sqlBatches||[]).filter(b=>b.status==="planned").length
   return<div style={{maxWidth:1100}}>
     <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:24}}>
-      <Stat label="Batches i gang" value={sqlStats?.active??"—"} c={sqlStats?.active>0?T.warn:T.dim} sub={sqlStats!=null?`${sqlStats.planned} planlagt · ${sqlStats.total} total`:"Indlæser..."} tip="Batches med status 'I gang' — aktiv produktion akkurat nu. Klik 'Batches' i menuen for at arbejde med dem."/>
+      <Stat label="Batches i gang" value={sqlBatches?activeBatches.length:"—"} c={activeBatches.length>0?T.warn:T.dim} sub={sqlBatches!=null?`${plannedCount} planlagt · ${sqlBatches.length} total`:"Indlæser..."} tip="Batches med status 'I gang' — aktiv produktion akkurat nu."/>
       <Stat label="Omsætning" value={fk(rev)} c={rev>0?T.ok:T.dim} sub="Denne måned" tip="Samlet ordreværdi for indeværende måned"/>
       <Stat label="CCP status" value={prods.length?`${Math.round(ccpOk/prods.length*100)}%`:"—"} c={ccpOk===prods.length&&prods.length>0?T.ok:T.warn} sub={`${ccpOk}/${prods.length} godkendt`} tip="Andel produktioner med godkendt CCP1 (temperatur) og CCP2 (forsegling)"/>
       <Stat label="Lager-alarm" value={low.length} c={low.length>0?T.red:T.ok} sub={low.length?low.map(i=>i.name).join(", "):"Alt over minimum"} tip="Varer under minimumsbeholdning"/>
@@ -122,10 +124,23 @@ function Dashboard({data,supabase,setPage}){
       <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
         <Btn primary onClick={()=>setPage("production")}>Start produktion</Btn>
         <Btn onClick={()=>setPage("inventory")}>Opret lot</Btn>
-        <Btn onClick={()=>setPage("batches")}>Se batches i gang{sqlStats?.active>0&&<span style={{marginLeft:6,background:T.warn,color:"#000",borderRadius:9,padding:"1px 6px",fontSize:10,fontWeight:700}}>{sqlStats.active}</span>}</Btn>
+        <Btn onClick={()=>setPage("batches")}>Se alle batches{activeBatches.length>0&&<span style={{marginLeft:6,background:T.warn,color:"#000",borderRadius:9,padding:"1px 6px",fontSize:10,fontWeight:700}}>{activeBatches.length}</span>}</Btn>
         <Btn onClick={()=>setPage("inventory")}>Se lageralarmer{low.length>0&&<span style={{marginLeft:6,background:T.red,color:"#fff",borderRadius:9,padding:"1px 6px",fontSize:10,fontWeight:700}}>{low.length}</span>}</Btn>
       </div>
     </div>
+
+    {sqlBatches&&activeBatches.length>0&&<div style={{marginBottom:20}}>
+      <div style={{fontSize:10,fontWeight:700,color:T.dim,letterSpacing:".1em",textTransform:"uppercase",marginBottom:8}}>Batches i gang</div>
+      {activeBatches.map(b=><Card key={b.id} style={{marginBottom:6,padding:"10px 14px",borderLeft:`4px solid ${T.warn}`}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div>
+            <div style={{fontSize:14,fontWeight:600}}>{b.batch_number}</div>
+            <div style={{fontSize:12,color:T.dim}}>{b.recipe_snapshot?.name||b.recipe_id||"—"}{b.started_at&&<span style={{marginLeft:8}}>Startet {new Date(b.started_at).toLocaleString("da-DK",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})}</span>}</div>
+          </div>
+          <Btn small onClick={()=>{setBatchNav({batchId:b.batch_number});setPage("batches")}} style={{color:T.acc,borderColor:T.acc}}>Åbn batch →</Btn>
+        </div>
+      </Card>)}
+    </div>}
 
     {(low.length>0||openDevs.length>0||pendingOrders.length>0)&&<Card style={{marginBottom:20,borderLeft:`4px solid ${T.warn}`,background:T.accDD}}>
       <div style={{fontSize:14,fontWeight:600,color:T.warn,marginBottom:10}}>⚡ Kræver opmærksomhed</div>
