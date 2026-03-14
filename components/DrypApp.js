@@ -88,13 +88,13 @@ export default function DrypApp({data,update,save,user,onLogout,supabase}){
         <div style={{flex:1}}/>
         <div style={{fontSize:11,color:T.dim,fontFamily:T.fm}}>{new Date().toLocaleDateString("da-DK",{weekday:"long",day:"numeric",month:"long"})}</div>
       </header>
-      <main style={{flex:1,overflow:"auto",padding:22}} className="fade-in" key={page}><Pg data={data} update={update} save={save} user={user} supabase={supabase}/></main>
+      <main style={{flex:1,overflow:"auto",padding:22}} className="fade-in" key={page}><Pg data={data} update={update} save={save} user={user} supabase={supabase} setPage={setPage}/></main>
     </div>
   </div>
 }
 
 // ═══ DASHBOARD — cleaner, priority-focused ═══
-function Dashboard({data,supabase}){
+function Dashboard({data,supabase,setPage}){
   const mo=today().slice(0,7);const prods=data.productions.filter(p=>p.date?.startsWith(mo))
   const rev=data.orders.filter(o=>o.date?.startsWith(mo)).reduce((s,o)=>s+(parseFloat(o.price)||0)*(parseInt(o.qty)||0),0)
   const low=data.inventory.filter(i=>i.qty<i.min)
@@ -109,6 +109,16 @@ function Dashboard({data,supabase}){
       <Stat label="Omsætning" value={fk(rev)} c={rev>0?T.ok:T.dim} sub="Denne måned" tip="Samlet ordreværdi for indeværende måned"/>
       <Stat label="CCP status" value={prods.length?`${Math.round(ccpOk/prods.length*100)}%`:"—"} c={ccpOk===prods.length&&prods.length>0?T.ok:T.warn} sub={`${ccpOk}/${prods.length} godkendt`} tip="Andel produktioner med godkendt CCP1 (temperatur) og CCP2 (forsegling)"/>
       <Stat label="Lager-alarm" value={low.length} c={low.length>0?T.red:T.ok} sub={low.length?low.map(i=>i.name).join(", "):"Alt over minimum"} tip="Varer under minimumsbeholdning"/>
+    </div>
+
+    <div style={{marginBottom:20}}>
+      <div style={{fontSize:10,fontWeight:700,color:T.dim,letterSpacing:".1em",textTransform:"uppercase",marginBottom:8}}>Hurtige handlinger</div>
+      <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+        <Btn primary onClick={()=>setPage("production")}><span style={{marginRight:5}}>▶</span>Start produktion</Btn>
+        <Btn onClick={()=>setPage("inventory")}><span style={{marginRight:5}}>+</span>Opret råvarelot</Btn>
+        <Btn onClick={()=>setPage("batches")}><span style={{marginRight:5}}>⬢</span>Batches i gang{sqlStats?.active>0&&<span style={{marginLeft:6,background:T.warn,color:"#000",borderRadius:9,padding:"1px 6px",fontSize:10,fontWeight:700}}>{sqlStats.active}</span>}</Btn>
+        <Btn onClick={()=>setPage("inventory")}><span style={{marginRight:5}}>▦</span>Se lageralarmer{low.length>0&&<span style={{marginLeft:6,background:T.red,color:"#fff",borderRadius:9,padding:"1px 6px",fontSize:10,fontWeight:700}}>{low.length}</span>}</Btn>
+      </div>
     </div>
 
     {(low.length>0||openDevs.length>0||pendingOrders.length>0)&&<Card style={{marginBottom:20,borderLeft:`4px solid ${T.warn}`,background:T.accDD}}>
