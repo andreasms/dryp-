@@ -5,6 +5,8 @@ import { createLot, getActiveLots, decrementLotQty } from '@/lib/db/lots'
 import { getBatchLotUsage, createBatchLotUsage } from '@/lib/db/batchLotUsage'
 import { recordMovement } from '@/lib/db/movements'
 import { createHaccpLog, getHaccpLogs, updateHaccpLog, deleteHaccpLog } from '@/lib/db/haccpLogs'
+import { getWikiPages, createWikiPage, updateWikiPage, deleteWikiPage } from '@/lib/db/wikiPages'
+import { getTeamMessages, sendTeamMessage } from '@/lib/db/teamMessages'
 
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,6)
 const today=()=>new Date().toISOString().slice(0,10)
@@ -978,15 +980,188 @@ function Documents({data,update,supabase}){
 }
 
 // ═══ TEAM ═══
-function Team({data,update}){
-  const[tab,setTab]=useState("pages");const[show,setShow]=useState(false);const[form,setForm]=useState({});const[view,setView]=useState(null);const[msg,setMsg]=useState("")
-  const pages=data.team?.pages||[];const msgs=data.team?.messages||[]
-  const sendMsg=()=>{if(!msg.trim())return;update("team",prev=>({...prev,messages:[...(prev?.messages||[]),{id:uid(),author:"Andreas",date:today(),time:new Date().toTimeString().slice(0,5),text:msg.trim()}]}));setMsg("")}
-  return<div style={{maxWidth:960}}>
-    <Tabs tabs={[["pages","Wiki / Sider"],["chat","Team Chat"]]} active={tab} onChange={setTab} right={tab==="pages"&&<Btn primary small onClick={()=>{setForm({id:uid(),title:"",content:"",updated:today(),author:"Andreas"});setShow(true)}}><Plus s={10} c={T.bg}/> Ny side</Btn>}/>
-    {tab==="pages"&&<>{view?<div><button onClick={()=>setView(null)} style={{background:"none",color:T.acc,fontSize:13,marginBottom:14,cursor:"pointer"}}>← Tilbage til oversigt</button><div style={{display:"flex",justifyContent:"space-between",marginBottom:14}}><h2 style={{fontSize:20,fontWeight:600}}>{view.title}</h2><div style={{display:"flex",gap:8}}><Btn small onClick={()=>{setForm(view);setShow(true);setView(null)}}>✎</Btn><Btn small danger onClick={()=>{if(confirm("Slet?"))update("team",prev=>({...prev,pages:(prev?.pages||[]).filter(p=>p.id!==view.id)}));setView(null)}}>✕</Btn></div></div><div style={{fontSize:14,lineHeight:1.8,color:T.mid,whiteSpace:"pre-wrap"}}>{view.content}</div><div style={{fontSize:11,color:T.dim,marginTop:18}}>{view.updated} · {view.author}</div></div>:pages.length===0?<Empty text="Ingen wiki-sider endnu" action="Opret" onAction={()=>{setForm({id:uid(),title:"",content:"",updated:today(),author:"Andreas"});setShow(true)}}/>:pages.map(p=><Card key={p.id} onClick={()=>setView(p)} style={{marginBottom:8,padding:14,cursor:"pointer"}}><div style={{display:"flex",justifyContent:"space-between"}}><div><div style={{fontSize:14,fontWeight:600}}>{p.title}</div><div style={{fontSize:12,color:T.dim,marginTop:2}}>{p.content?.slice(0,100)}</div></div><span style={{fontSize:11,color:T.dim,whiteSpace:"nowrap",marginLeft:12}}>{p.updated}</span></div></Card>)}</>}
-    {tab==="chat"&&<div><div style={{minHeight:350,maxHeight:450,overflow:"auto",marginBottom:14}}>{msgs.length===0?<div style={{textAlign:"center",padding:50,color:T.dim,fontSize:13}}>Ingen beskeder endnu</div>:msgs.map(m=><div key={m.id} style={{marginBottom:10,display:"flex",gap:10}}><div style={{width:30,height:30,borderRadius:"50%",background:T.accD,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,color:T.acc,flexShrink:0}}>{m.author?.charAt(0)}</div><div><div style={{fontSize:11,color:T.dim}}>{m.author} · {m.date} {m.time}</div><div style={{fontSize:14,marginTop:3,lineHeight:1.5}}>{m.text}</div></div></div>)}</div><div style={{display:"flex",gap:10}}><input value={msg} onChange={e=>setMsg(e.target.value)} placeholder="Skriv besked..." style={{fontSize:13}} onKeyDown={e=>e.key==="Enter"&&sendMsg()}/><Btn primary onClick={sendMsg}>Send</Btn></div></div>}
-    {show&&<Modal title={form.title||"Ny side"} onClose={()=>setShow(false)} wide><Field label="Titel"><input value={form.title} onChange={e=>setForm({...form,title:e.target.value})}/></Field><Field label="Indhold"><textarea value={form.content} onChange={e=>setForm({...form,content:e.target.value})} style={{minHeight:240,fontSize:13,lineHeight:1.6}}/></Field><div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn onClick={()=>setShow(false)}>Annuller</Btn><Btn primary onClick={()=>{update("team",prev=>({...prev,pages:[{...form,updated:today()},...(prev?.pages||[]).filter(p=>p.id!==form.id)]}));setShow(false)}}>✓ Gem</Btn></div></Modal>}
+// ═══ TEAM & WIKI — Supabase-backed wiki + realtime chat ═══
+function Team({supabase,user}){
+  const[section,setSection]=useState("pages")
+  const[pages,setPages]=useState([])
+  const[selectedId,setSelectedId]=useState(null)
+  const[editing,setEditing]=useState(false)
+  const[form,setForm]=useState({title:"",content:""})
+  const[saving,setSaving]=useState(false)
+  const[messages,setMessages]=useState([])
+  const[msg,setMsg]=useState("")
+  const[sending,setSending]=useState(false)
+  const chatEnd=useRef(null)
+  const userName=user?.email?.split("@")[0]||"Bruger"
+
+  // ── Wiki ──
+  const loadPages=async()=>{
+    if(!supabase)return
+    try{
+      let rows=await getWikiPages(supabase)
+      if(rows.length===0){
+        const{data:{user:u}}=await supabase.auth.getUser()
+        await createWikiPage(supabase,{title:"Velkommen til DRYP",content:"Her kan teamet skrive noter, mødereferater, idéer og planer.\n\nBrug + knappen til at oprette nye sider.",created_by:u.id})
+        rows=await getWikiPages(supabase)
+      }
+      setPages(rows)
+    }catch(err){console.error("[DRYP] loadPages failed:",err)}
+  }
+  useEffect(()=>{loadPages()},[supabase])
+
+  const selected=pages.find(p=>p.id===selectedId)||null
+
+  const startNew=async()=>{
+    setForm({title:"",content:""})
+    setEditing(true)
+    setSelectedId(null)
+  }
+
+  const startEdit=()=>{
+    if(!selected)return
+    setForm({title:selected.title,content:selected.content})
+    setEditing(true)
+  }
+
+  const savePage=async()=>{
+    if(!supabase||!form.title.trim())return
+    setSaving(true)
+    try{
+      const{data:{user:u}}=await supabase.auth.getUser()
+      if(selectedId){
+        await updateWikiPage(supabase,selectedId,{title:form.title,content:form.content,updated_by:u.id})
+      }else{
+        const p=await createWikiPage(supabase,{title:form.title,content:form.content,created_by:u.id})
+        setSelectedId(p.id)
+      }
+      setEditing(false)
+      await loadPages()
+    }catch(err){console.error("[DRYP] savePage failed:",err);alert("Fejl: "+err.message)}
+    setSaving(false)
+  }
+
+  const deletePage=async()=>{
+    if(!selectedId||!confirm("Slet denne side?"))return
+    try{await deleteWikiPage(supabase,selectedId);setSelectedId(null);setEditing(false);await loadPages()}
+    catch(err){console.error("[DRYP] deletePage failed:",err)}
+  }
+
+  // ── Chat ──
+  const loadMessages=async()=>{
+    if(!supabase)return
+    try{const rows=await getTeamMessages(supabase);setMessages(rows||[])}
+    catch(err){console.error("[DRYP] loadMessages failed:",err)}
+  }
+
+  useEffect(()=>{
+    if(section==="chat")loadMessages()
+  },[section,supabase])
+
+  // Realtime subscription for chat
+  useEffect(()=>{
+    if(!supabase)return
+    const channel=supabase.channel("team-chat")
+      .on("postgres_changes",{event:"INSERT",schema:"public",table:"team_messages"},(payload)=>{
+        if(payload?.new)setMessages(prev=>{
+          if(prev.some(m=>m.id===payload.new.id))return prev
+          return[...prev,payload.new]
+        })
+      })
+      .subscribe()
+    return()=>{supabase.removeChannel(channel)}
+  },[supabase])
+
+  // Auto-scroll chat
+  useEffect(()=>{chatEnd.current?.scrollIntoView({behavior:"smooth"})},[messages])
+
+  const doSend=async()=>{
+    if(!msg.trim()||!supabase)return
+    setSending(true)
+    try{
+      const{data:{user:u}}=await supabase.auth.getUser()
+      await sendTeamMessage(supabase,{author_id:u.id,author_name:userName,content:msg.trim()})
+      setMsg("")
+    }catch(err){console.error("[DRYP] sendMessage failed:",err)}
+    setSending(false)
+  }
+
+  // ── Layout ──
+  return<div style={{display:"flex",gap:0,maxWidth:1100,height:"calc(100vh - 120px)"}}>
+    {/* Sidebar */}
+    <div style={{width:220,minWidth:220,borderRight:`1px solid ${T.brdL}`,display:"flex",flexDirection:"column",overflow:"hidden"}}>
+      <div style={{padding:"12px 14px 8px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div style={{fontSize:10,fontWeight:700,color:T.dim,letterSpacing:".1em",textTransform:"uppercase"}}>Wiki / Sider</div>
+        <button onClick={startNew} style={{background:"none",color:T.acc,fontSize:16,cursor:"pointer",lineHeight:1}} title="Ny side">+</button>
+      </div>
+      <div style={{flex:1,overflow:"auto",padding:"0 6px"}}>
+        {pages.map(p=><button key={p.id} onClick={()=>{setSelectedId(p.id);setEditing(false);setSection("pages")}} style={{display:"block",width:"100%",textAlign:"left",padding:"8px 10px",borderRadius:6,marginBottom:2,background:selectedId===p.id&&section==="pages"?T.accD:"transparent",color:selectedId===p.id&&section==="pages"?T.acc:T.mid,fontSize:12.5,fontWeight:selectedId===p.id&&section==="pages"?600:400,cursor:"pointer",border:"none",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{p.title||"Uden titel"}</button>)}
+      </div>
+      <div style={{borderTop:`1px solid ${T.brdL}`,padding:"10px 14px"}}>
+        <button onClick={()=>{setSection("chat");setSelectedId(null);setEditing(false)}} style={{display:"flex",alignItems:"center",gap:8,width:"100%",padding:"8px 10px",borderRadius:6,background:section==="chat"?T.accD:"transparent",color:section==="chat"?T.acc:T.mid,fontSize:12.5,fontWeight:section==="chat"?600:400,cursor:"pointer",border:"none"}}>
+          <span style={{fontSize:14}}>💬</span> Team Chat
+          {messages.length>0&&<span style={{marginLeft:"auto",fontSize:10,color:T.dim,fontFamily:T.fm}}>{messages.length}</span>}
+        </button>
+      </div>
+    </div>
+
+    {/* Main area */}
+    <div style={{flex:1,overflow:"auto",padding:"16px 24px"}}>
+
+      {/* Wiki: no page selected */}
+      {section==="pages"&&!selectedId&&!editing&&<div style={{textAlign:"center",padding:60,color:T.dim}}>
+        <div style={{fontSize:14,marginBottom:12}}>Vælg en side i menuen til venstre</div>
+        <Btn primary onClick={startNew}><Plus s={12} c={T.bg}/> Ny side</Btn>
+      </div>}
+
+      {/* Wiki: viewing a page */}
+      {section==="pages"&&selected&&!editing&&<div className="fade-in">
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:16}}>
+          <h2 style={{fontSize:22,fontWeight:700,lineHeight:1.3}}>{selected.title}</h2>
+          <div style={{display:"flex",gap:8,flexShrink:0}}>
+            <Btn small onClick={startEdit}>✎ Rediger</Btn>
+            <Btn small danger onClick={deletePage}>✕ Slet</Btn>
+          </div>
+        </div>
+        <div style={{fontSize:14,lineHeight:1.8,color:T.mid,whiteSpace:"pre-wrap",minHeight:200}}>{selected.content||"(Tom side)"}</div>
+        <div style={{fontSize:11,color:T.dim,marginTop:24,paddingTop:12,borderTop:`1px solid ${T.brdL}`}}>
+          Opdateret {selected.updated_at?.slice(0,10)||"—"}{selected.updated_by&&<span> · af {selected.updated_by===user?.id?userName:(selected.updated_by?.slice(0,8))}</span>}
+          {selected.created_at&&<span style={{marginLeft:12}}>Oprettet {selected.created_at.slice(0,10)}</span>}
+        </div>
+      </div>}
+
+      {/* Wiki: editing / creating */}
+      {section==="pages"&&editing&&<div className="fade-in">
+        <div style={{fontSize:10,fontWeight:700,color:T.dim,letterSpacing:".1em",textTransform:"uppercase",marginBottom:12}}>{selectedId?"Rediger side":"Ny side"}</div>
+        <Field label="Titel"><input value={form.title} onChange={e=>setForm({...form,title:e.target.value})} placeholder="Sidetitel..." autoFocus style={{fontSize:15,fontWeight:600,padding:"10px 12px"}}/></Field>
+        <Field label="Indhold"><textarea value={form.content} onChange={e=>setForm({...form,content:e.target.value})} placeholder="Skriv indhold her..." style={{minHeight:300,fontSize:13.5,lineHeight:1.7}}/></Field>
+        <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:8}}>
+          <Btn onClick={()=>{setEditing(false);if(!selectedId)setSelectedId(null)}}>Annuller</Btn>
+          <Btn primary onClick={savePage} disabled={saving||!form.title.trim()}>{saving?"Gemmer...":"✓ Gem"}</Btn>
+        </div>
+      </div>}
+
+      {/* Chat */}
+      {section==="chat"&&<div style={{display:"flex",flexDirection:"column",height:"100%"}}>
+        <div style={{fontSize:10,fontWeight:700,color:T.dim,letterSpacing:".1em",textTransform:"uppercase",marginBottom:12}}>Team Chat</div>
+        <div style={{flex:1,overflow:"auto",marginBottom:14,minHeight:300}}>
+          {messages.length===0
+            ?<div style={{textAlign:"center",padding:50,color:T.dim,fontSize:13}}>Ingen beskeder endnu. Skriv den første!</div>
+            :messages.map(m=><div key={m.id} style={{marginBottom:12,display:"flex",gap:10}}>
+              <div style={{width:32,height:32,borderRadius:"50%",background:T.accD,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:700,color:T.acc,flexShrink:0}}>{(m.author_name||"?").charAt(0).toUpperCase()}</div>
+              <div style={{flex:1}}>
+                <div style={{fontSize:11,color:T.dim}}>{m.author_name||"—"} · {m.created_at?new Date(m.created_at).toLocaleString("da-DK",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"}):""}</div>
+                <div style={{fontSize:14,marginTop:3,lineHeight:1.5}}>{m.content}</div>
+              </div>
+            </div>)
+          }
+          <div ref={chatEnd}/>
+        </div>
+        <div style={{display:"flex",gap:10,flexShrink:0}}>
+          <input value={msg} onChange={e=>setMsg(e.target.value)} placeholder="Skriv besked..." style={{fontSize:13}} onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey)doSend()}}/>
+          <Btn primary onClick={doSend} disabled={sending||!msg.trim()}>{sending?"...":"Send"}</Btn>
+        </div>
+      </div>}
+    </div>
   </div>
 }
 
