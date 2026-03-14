@@ -47,6 +47,7 @@ const SH=({title,desc,tip,children})=><div style={{display:"flex",justifyContent
 // ═══ MAIN APP ═══
 export default function DrypApp({data,update,save,user,onLogout,supabase}){
   const[page,setPage]=useState("dashboard")
+  const[batchNav,setBatchNav]=useState(null)
   const[sb,setSb]=useState(typeof window!=='undefined'?window.innerWidth>900:true)
   const[isMobile,setIsMobile]=useState(typeof window!=='undefined'?window.innerWidth<=768:false)
   useEffect(()=>{const h=()=>{setSb(window.innerWidth>900);setIsMobile(window.innerWidth<=768)};window.addEventListener("resize",h);return()=>window.removeEventListener("resize",h)},[])
@@ -93,7 +94,7 @@ export default function DrypApp({data,update,save,user,onLogout,supabase}){
         <div style={{flex:1}}/>
         <div style={{fontSize:11,color:T.dim,fontFamily:T.fm}}>{new Date().toLocaleDateString("da-DK",{weekday:"long",day:"numeric",month:"long"})}</div>
       </header>
-      <main style={{flex:1,overflow:"auto",padding:22}} className="fade-in" key={page}><Pg data={data} update={update} save={save} user={user} supabase={supabase} setPage={setPage}/></main>
+      <main style={{flex:1,overflow:"auto",padding:22}} className="fade-in" key={page}><Pg data={data} update={update} save={save} user={user} supabase={supabase} setPage={setPage} batchNav={batchNav} setBatchNav={setBatchNav}/></main>
     </div>
   </div>
 }
@@ -241,7 +242,7 @@ function Recipes({data,update}){
 }
 
 // ═══ PRODUCTION ═══
-function Production({data,update,supabase}){
+function Production({data,update,supabase,setPage,setBatchNav}){
   const[show,setShow]=useState(false);const[form,setForm]=useState({});const[exp,setExp]=useState(null)
   const recipes=(data.recipes||[]).filter(r=>r.active)
   const startNew=()=>{const r=recipes[0];setForm({id:uid(),recipeId:r?.id||"",recipeName:r?.name||"",batchId:`DRYP-${today().replace(/-/g,"").slice(2)}-${String(data.productions.length+1).padStart(3,"0")}`,date:today(),operator:"Andreas",rapsolieQty:"",rapsolieLot:"",dildQty:"",volume:"",bottles250:"",bottles500:"",ccp1TempStart:"",ccp1TempEnd:"",infusionTime:r?.infusionTime||"",ccp1Ok:false,ccp2Visual:false,ccp2Ok:false,cleaningDone:false,hygieneDone:false,tempStorage:"",notes:""});setShow(true)}
@@ -254,7 +255,7 @@ function Production({data,update,supabase}){
         {exp===p.id&&<div className="fade-in" style={{marginTop:14,paddingTop:14,borderTop:`1px solid ${T.brdL}`,display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:"6px 20px",fontSize:12}}>
           {[["Rapsolie",`${p.rapsolieQty||"—"}L`],["Lot",p.rapsolieLot],["Dild",`${p.dildQty||"—"}kg`],["CCP1 start",`${p.ccp1TempStart||"—"}°C`],["CCP1 slut",`${p.ccp1TempEnd||"—"}°C`],["Tid",p.infusionTime],["250ml",p.bottles250],["500ml",p.bottles500],["Lagertemp",`${p.tempStorage||"—"}°C`]].map(([k,v])=><div key={k}><span style={{color:T.dim}}>{k}:</span> <span style={{color:T.txt}}>{v||"—"}</span></div>)}
           {p.notes&&<div style={{gridColumn:"1/-1",color:T.dim,fontStyle:"italic",marginTop:4}}>{p.notes}</div>}
-          <div style={{gridColumn:"1/-1",marginTop:8,display:"flex",gap:8}}><Btn small onClick={e=>{e.stopPropagation();setForm(p);setShow(true)}}>✎ Rediger</Btn><Btn small danger onClick={e=>{e.stopPropagation();if(confirm("Slet?"))update("productions",prev=>prev.filter(x=>x.id!==p.id))}}>✕ Slet</Btn></div>
+          <div style={{gridColumn:"1/-1",marginTop:8,display:"flex",gap:8}}><Btn small onClick={e=>{e.stopPropagation();setForm(p);setShow(true)}}>✎ Rediger</Btn><Btn small danger onClick={e=>{e.stopPropagation();if(confirm("Slet?"))update("productions",prev=>prev.filter(x=>x.id!==p.id))}}>✕ Slet</Btn>{p.batchId&&setBatchNav&&<Btn small onClick={e=>{e.stopPropagation();setBatchNav({batchId:p.batchId});setPage("batches")}} style={{color:T.acc,borderColor:T.acc}}>Gå til batch →</Btn>}</div>
         </div>}
       </Card>)}
     {show&&<Modal title={`Produktion · ${form.batchId}`} onClose={()=>setShow(false)} wide>
@@ -288,7 +289,7 @@ function Production({data,update,supabase}){
 }
 
 // ═══ BATCHES with GS1 ═══
-function Batches({data,update,supabase}){
+function Batches({data,update,supabase,batchNav,setBatchNav}){
   const[show,setShow]=useState(false);const[form,setForm]=useState({})
   const[showGs1,setShowGs1]=useState(false)
   const[sqlBatches,setSqlBatches]=useState(null)
@@ -302,6 +303,13 @@ function Batches({data,update,supabase}){
 
   const refresh=()=>{if(!supabase)return;getBatches(supabase).then(rows=>{if(rows&&rows.length>0)setSqlBatches(rows)}).catch(()=>{})}
   useEffect(()=>{refresh()},[supabase])
+
+  useEffect(()=>{
+    if(!batchNav?.batchId||!sqlBatches)return
+    const match=sqlBatches.find(b=>b.batch_number===batchNav.batchId)
+    if(match){setSelectedId(match.id)}
+    if(setBatchNav)setBatchNav(null)
+  },[batchNav,sqlBatches])
 
   useEffect(()=>{
     if(!supabase||!selectedId)return
