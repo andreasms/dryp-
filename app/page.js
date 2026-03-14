@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase'
 import DrypApp from '@/components/DrypApp'
 
@@ -40,9 +40,12 @@ export default function Home() {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const supabase = createClient()
+  const savingRef = useRef(false)
 
   // Shared team data loader — reused by init, realtime, and tab-focus
+  // Skips refetch if a save is in flight to avoid overwriting unsaved local state
   const loadTeamData = async () => {
+    if (savingRef.current) return
     const { data: row } = await supabase
       .from('team_data')
       .select('data')
@@ -91,10 +94,16 @@ export default function Home() {
   const save = useCallback(async (newData) => {
     setData(newData)
     if (!user) return
-    await supabase
-      .from('team_data')
-      .update({ data: newData, updated_by: user.id })
-      .eq('team_id', 'dryp')
+    savingRef.current = true
+    try {
+      const { error } = await supabase
+        .from('team_data')
+        .update({ data: newData, updated_by: user.id })
+        .eq('team_id', 'dryp')
+      if (error) console.error('[DRYP] save failed:', error)
+    } finally {
+      savingRef.current = false
+    }
   }, [user, supabase])
 
   const update = useCallback((key, value) => {
