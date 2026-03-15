@@ -512,33 +512,54 @@ function Batches({data,update,supabase,batchNav,setBatchNav}){
         </div>
       </div>
 
-      {/* ─── 3. SPORBARHED ─── */}
+      {/* ─── 3. SPORBARHED — per BOM item ─── */}
       <div style={{borderTop:`1px solid ${T.brdL}`,paddingTop:16,marginBottom:16}}>
         <div style={{display:"flex",alignItems:"center",marginBottom:12}}>
           <div style={{fontSize:10,fontWeight:700,color:T.dim,textTransform:"uppercase",letterSpacing:".1em"}}>3 · Sporbarhed</div>
-          <Tip text="Sporbarhed dokumenterer hvilke råvarelots der gik ind i denne batch. Påkrævet ved fødevarekontrol og tilbagekaldelser. Tidslinje og GS1-stregkoder tilføjes i kommende faser."/>
+          <Tip text="Sporbarhed dokumenterer hvilke råvarelots der gik ind i denne batch. Påkrævet ved fødevarekontrol og tilbagekaldelser."/>
         </div>
 
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-          <div style={{fontSize:11,fontWeight:600,color:T.mid}}>Råvarer brugt</div>
-          {selected.status==="in_progress"&&<Btn small primary onClick={()=>{setLotItemId("");setNewLot({lotId:"",qtyUsed:""});setShowLotModal(true)}}>+ Registrér råvare</Btn>}
-        </div>
-        {lotUsage.length===0?<div style={{fontSize:12,color:T.dim,marginBottom:10}}>Ingen råvarer registreret endnu</div>:lotUsage.map(u=><div key={u.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:12,padding:"5px 0",borderBottom:`1px solid ${T.brdL}`}}><div><span style={{fontWeight:500}}>{u.lots?.lot_number||u.lot_id}</span><span style={{color:T.dim,marginLeft:8}}>{data.inventory.find(i=>i.id===u.lots?.item_id)?.name||u.lots?.item_id||u.item_id}</span></div><span style={{fontFamily:T.fm,color:T.acc}}>{u.qty_used} {u.unit}</span></div>)}
-
-        {lotUsage.length>0&&<div style={{marginTop:10,fontSize:11,color:T.dim,fontStyle:"italic",paddingTop:6,borderTop:`1px solid ${T.brdL}`}}>Produktionstidslinje og GS1/GTIN-stregkode tilknyttes i næste version af sporbarhedsmodulet</div>}
+        {(()=>{
+          const rawBom=(selected.recipe_snapshot?.bom||[]).filter(b=>{const inv=data.inventory.find(i=>i.id===b.itemId);return inv&&inv.cat==="Råvare"})
+          if(rawBom.length===0)return<div style={{fontSize:12,color:T.dim,marginBottom:10}}>Ingen råvarer i opskriften</div>
+          return rawBom.map(b=>{
+            const inv=data.inventory.find(i=>i.id===b.itemId)
+            const itemUsage=lotUsage.filter(u=>(u.item_id||u.lots?.item_id)===b.itemId)
+            const usedTotal=itemUsage.reduce((s,u)=>s+(parseFloat(u.qty_used)||0),0)
+            const hasUsage=itemUsage.length>0
+            return<div key={b.itemId} style={{marginBottom:12,padding:"10px 12px",background:T.input,borderRadius:8,border:`1px solid ${hasUsage?`${T.ok}44`:`${T.warn}44`}`}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:hasUsage?8:0}}>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <span style={{fontSize:14,color:hasUsage?T.ok:T.warn}}>{hasUsage?"✓":"⚠"}</span>
+                  <div>
+                    <div style={{fontSize:13,fontWeight:600}}>{inv?.name||b.itemId}</div>
+                    <div style={{fontSize:11,color:T.dim}}>Behov: {b.qty} {b.unit}{usedTotal>0&&<span style={{color:T.acc,marginLeft:8}}>Registreret: {usedTotal} {b.unit}</span>}</div>
+                  </div>
+                </div>
+                {selected.status==="in_progress"&&<Btn small primary onClick={()=>{setLotItemId(b.itemId);setNewLot({lotId:"",qtyUsed:""});setShowLotModal(true)}}>+ Registrér</Btn>}
+              </div>
+              {itemUsage.length>0&&<div style={{paddingTop:6,borderTop:`1px solid ${T.brdL}`}}>
+                {itemUsage.map(u=><div key={u.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:12,padding:"3px 0"}}>
+                  <span style={{fontWeight:500,color:T.mid}}>{u.lots?.lot_number||u.lot_id}</span>
+                  <span style={{fontFamily:T.fm,color:T.acc}}>{u.qty_used} {u.unit}</span>
+                </div>)}
+              </div>}
+            </div>
+          })
+        })()}
       </div>
 
       <div style={{display:"flex",justifyContent:"flex-end"}}>
         <Btn onClick={()=>setSelectedId(null)}>Luk</Btn>
       </div>
     </Modal>}
-    {showLotModal&&selected&&<Modal title="Registrér råvareforbrug" onClose={()=>setShowLotModal(false)}>
-      <Field label="Råvare">
+    {showLotModal&&selected&&(()=>{const lotInv=data.inventory.find(i=>i.id===lotItemId);return<Modal title={lotInv?`Registrér forbrug · ${lotInv.name}`:"Registrér råvareforbrug"} onClose={()=>setShowLotModal(false)}>
+      {!lotItemId&&<Field label="Råvare">
         <select value={lotItemId} onChange={e=>{setLotItemId(e.target.value);setNewLot({lotId:"",qtyUsed:""})}}>
           <option value="">Vælg råvare...</option>
           {(selected.recipe_snapshot?.bom||[]).map(b=>{const inv=data.inventory.find(i=>i.id===b.itemId);return inv?<option key={b.itemId} value={b.itemId}>{inv.name} ({inv.unit})</option>:null})}
         </select>
-      </Field>
+      </Field>}
       <Field label="Lot">
         <select value={newLot.lotId} onChange={e=>setNewLot({...newLot,lotId:e.target.value})} disabled={!lotItemId}>
           <option value="">Vælg lot...</option>
@@ -553,7 +574,7 @@ function Batches({data,update,supabase,batchNav,setBatchNav}){
         <Btn onClick={()=>setShowLotModal(false)}>Annuller</Btn>
         <Btn primary disabled={savingLot||!newLot.lotId||!newLot.qtyUsed} onClick={async()=>{await addLotUsage();setShowLotModal(false)}}>{savingLot?"Gemmer...":"✓ Registrér"}</Btn>
       </div>
-    </Modal>}
+    </Modal>})()}
     {show&&<Modal title={`Batch · ${form.id}`} onClose={()=>setShow(false)}>
       <Field label="Batch-nr."><input value={form.id} onChange={e=>setForm({...form,id:e.target.value})}/></Field>
       <Field label="Oprettet"><input type="date" value={form.created} onChange={e=>setForm({...form,created:e.target.value})}/></Field>
