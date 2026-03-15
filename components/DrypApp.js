@@ -925,11 +925,13 @@ function Customers({data,update}){
   </div>
 }
 
-function Economy({data,save}){
+function Economy({data,save,supabase}){
   const[editP,setEditP]=useState(false);const p=data.prices||{};const[pf,setPf]=useState(p)
   const[simOpen,setSimOpen]=useState(false);const[simRid,setSimRid]=useState("");const[simW,setSimW]=useState("");const[simOh,setSimOh]=useState("");const[simRawMul,setSimRawMul]=useState("0");const[simPackMul,setSimPackMul]=useState("0")
+  const[ecoBatches,setEcoBatches]=useState(null)
   const recipes=(data.recipes||[]).filter(r=>r.active)
   const orders=data.orders||[]
+  useEffect(()=>{if(supabase)getBatches(supabase).then(setEcoBatches).catch(()=>{})},[supabase])
 
   // Cost helpers
   const costRaw=(rid)=>{const r=(data.recipes||[]).find(x=>x.id===rid);if(!r)return 0;return(r.bom||[]).filter(b=>{const inv=data.inventory.find(x=>x.id===b.itemId);return inv?.cat==="Råvare"}).reduce((s,b)=>{const inv=data.inventory.find(x=>x.id===b.itemId);return s+(inv?.costPer||0)*b.qty},0)}
@@ -967,7 +969,14 @@ function Economy({data,save}){
     revenueWeightedSum+=price*qty
   })
   const avgDbPct=revenueWeightedSum>0?Math.round(marginWeightedSum/revenueWeightedSum*100):null
-  const overheadPerBottle=totalQtyThis>0?((p.overhead||0)/totalQtyThis):null
+
+  // Overhead per bottle — forecast (user-defined volume) and actual MTD (completed batches)
+  const forecastBottles=p.forecastMonthlyBottles||600
+  const forecastOh=(p.overhead||0)/Math.max(forecastBottles,1)
+  const mtdBottles=ecoBatches?ecoBatches.filter(b=>b.status==="completed"&&b.completed_at?.startsWith(mo)).reduce((s,b)=>s+(b.actual_qty||0),0):null
+  const actualOh=mtdBottles!=null&&mtdBottles>0?(p.overhead||0)/mtdBottles:null
+  // Used by margin cards and simulator as the best available per-bottle overhead
+  const overheadPerBottle=actualOh!=null?actualOh:forecastOh
 
   return<div style={{maxWidth:1060}}>
     <SH title="Økonomi" desc="Omsætning, kostpriser og marginer" tip="Råvarekost og emballage vises separat. Dækningsbidrag beregnes automatisk fra engrospris minus samlet kostpris."/>
@@ -977,7 +986,8 @@ function Economy({data,save}){
       <Stat label="Omsætning" value={fk(revThis)} c={T.ok} sub="Denne måned"/>
       <Stat label="Forrige måned" value={fk(revPrev)} c={T.mid}/>
       <Stat label="Gns. DB%" value={avgDbPct!==null?`${avgDbPct}%`:"—"} c={avgDbPct!==null&&avgDbPct>0?T.ok:T.warn} sub={avgDbPct!==null?"Vægtet snit denne måned":"Ingen ordrer endnu"}/>
-      <Stat label="Overhead / flaske" value={overheadPerBottle!==null?`${overheadPerBottle.toFixed(1)} kr`:"—"} c={T.mid} sub={totalQtyThis>0?`${totalQtyThis} stk solgt denne måned`:`${fk(p.overhead||0)} pr. måned`}/>
+      <Stat label="OH / flaske (forecast)" value={`${forecastOh.toFixed(1)} kr`} c={T.mid} sub={`Baseret på ${forecastBottles} flasker/md.`}/>
+      <Stat label="OH / flaske (faktisk)" value={actualOh!=null?`${actualOh.toFixed(1)} kr`:"—"} c={actualOh!=null?T.ok:T.dim} sub={mtdBottles!=null&&mtdBottles>0?`${mtdBottles} stk produceret denne md.`:"Ingen afsluttede batches"}/>
     </div>
 
     {/* ─── B3: REVENUE MINI CHART (6 months) ─── */}
@@ -1091,7 +1101,7 @@ function Economy({data,save}){
       </div>}
     </Card>
 
-    {editP&&<Modal title="Priser" onClose={()=>setEditP(false)}><Field label="Retail 250ml" tip="Vejledende udsalgspris til slutkunde"><input type="number" value={pf.retail250||0} onChange={e=>setPf({...pf,retail250:parseFloat(e.target.value)||0})}/></Field><Field label="Engros 250ml" tip="B2B pris til restauranter og forhandlere"><input type="number" value={pf.wholesale250||0} onChange={e=>setPf({...pf,wholesale250:parseFloat(e.target.value)||0})}/></Field><Field label="Retail 500ml"><input type="number" value={pf.retail500||0} onChange={e=>setPf({...pf,retail500:parseFloat(e.target.value)||0})}/></Field><Field label="Engros 500ml"><input type="number" value={pf.wholesale500||0} onChange={e=>setPf({...pf,wholesale500:parseFloat(e.target.value)||0})}/></Field><Field label="Overhead pr. måned" tip="Faste udgifter (lager, transport, forsikring)"><input type="number" value={pf.overhead||0} onChange={e=>setPf({...pf,overhead:parseFloat(e.target.value)||0})}/></Field><div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn onClick={()=>setEditP(false)}>Annuller</Btn><Btn primary onClick={()=>{save({...data,prices:pf});setEditP(false)}}>✓ Gem</Btn></div></Modal>}
+    {editP&&<Modal title="Priser" onClose={()=>setEditP(false)}><Field label="Retail 250ml" tip="Vejledende udsalgspris til slutkunde"><input type="number" value={pf.retail250||0} onChange={e=>setPf({...pf,retail250:parseFloat(e.target.value)||0})}/></Field><Field label="Engros 250ml" tip="B2B pris til restauranter og forhandlere"><input type="number" value={pf.wholesale250||0} onChange={e=>setPf({...pf,wholesale250:parseFloat(e.target.value)||0})}/></Field><Field label="Retail 500ml"><input type="number" value={pf.retail500||0} onChange={e=>setPf({...pf,retail500:parseFloat(e.target.value)||0})}/></Field><Field label="Engros 500ml"><input type="number" value={pf.wholesale500||0} onChange={e=>setPf({...pf,wholesale500:parseFloat(e.target.value)||0})}/></Field><Field label="Overhead pr. måned" tip="Faste udgifter (lager, transport, forsikring)"><input type="number" value={pf.overhead||0} onChange={e=>setPf({...pf,overhead:parseFloat(e.target.value)||0})}/></Field><Field label="Forventet flasker pr. måned" tip="Bruges til forecast overhead pr. flaske. Standard: 600"><input type="number" value={pf.forecastMonthlyBottles||600} onChange={e=>setPf({...pf,forecastMonthlyBottles:parseInt(e.target.value)||0})}/></Field><div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn onClick={()=>setEditP(false)}>Annuller</Btn><Btn primary onClick={()=>{save({...data,prices:pf});setEditP(false)}}>✓ Gem</Btn></div></Modal>}
   </div>
 }
 
