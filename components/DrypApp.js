@@ -927,6 +927,7 @@ function Customers({data,update}){
 
 function Economy({data,save}){
   const[editP,setEditP]=useState(false);const p=data.prices||{};const[pf,setPf]=useState(p)
+  const[simOpen,setSimOpen]=useState(false);const[simRid,setSimRid]=useState("");const[simW,setSimW]=useState("");const[simOh,setSimOh]=useState("");const[simRawMul,setSimRawMul]=useState("0");const[simPackMul,setSimPackMul]=useState("0")
   const recipes=(data.recipes||[]).filter(r=>r.active)
   const orders=data.orders||[]
 
@@ -1042,6 +1043,54 @@ function Economy({data,save}){
         </div>
       </Card>
     })}
+    {/* ─── B4: WHAT-IF SIMULATOR ─── */}
+    <Card style={{marginTop:18,padding:0,overflow:"hidden"}}>
+      <div onClick={()=>setSimOpen(!simOpen)} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"12px 16px",cursor:"pointer"}}>
+        <span style={{fontSize:14,fontWeight:600}}>Hvad-hvis (simulator)</span>
+        <span style={{fontSize:12,color:T.dim}}>{simOpen?"▲ Luk":"▼ Åbn"}</span>
+      </div>
+      {simOpen&&<div style={{padding:"0 16px 16px",borderTop:`1px solid ${T.brdL}`}}>
+        <div style={{paddingTop:14,marginBottom:14}}>
+          <Field label="Vælg produkt">
+            <select value={simRid} onChange={e=>{const rid=e.target.value;setSimRid(rid);const wp=getWholesalePrice(rid);setSimW(wp!=null?String(wp):"");setSimOh(overheadPerBottle!=null?overheadPerBottle.toFixed(1):"0");setSimRawMul("0");setSimPackMul("0")}}>
+              <option value="">Vælg opskrift...</option>
+              {recipes.map(r=><option key={r.id} value={r.id}>{r.name}</option>)}
+            </select>
+          </Field>
+        </div>
+        {simRid&&(()=>{
+          const sRaw=costRaw(simRid)*(1+(parseFloat(simRawMul)||0)/100)
+          const sPack=costPack(simRid)*(1+(parseFloat(simPackMul)||0)/100)
+          const sOh=parseFloat(simOh)||0
+          const sTotal=sRaw+sPack+sOh
+          const sWp=parseFloat(simW)||0
+          const sDb=sWp>0?sWp-sTotal:null
+          const sDbPct=sWp>0&&sDb!=null?Math.round(sDb/sWp*100):null
+          return<>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 16px",marginBottom:16}}>
+              <Field label="Engrospris (kr)"><input type="number" value={simW} onChange={e=>setSimW(e.target.value)} placeholder="—"/></Field>
+              <Field label="Overhead / flaske (kr)"><input type="number" step="0.1" value={simOh} onChange={e=>setSimOh(e.target.value)}/></Field>
+              <Field label="Råvare ændring (%)" tip="F.eks. +10 for 10% dyrere"><input type="number" value={simRawMul} onChange={e=>setSimRawMul(e.target.value)}/></Field>
+              <Field label="Emballage ændring (%)" tip="F.eks. -5 for 5% billigere"><input type="number" value={simPackMul} onChange={e=>setSimPackMul(e.target.value)}/></Field>
+            </div>
+            <div style={{background:T.input,borderRadius:8,padding:"12px 16px",marginBottom:14}}>
+              <div style={{display:"flex",gap:20,flexWrap:"wrap",fontSize:13}}>
+                <span style={{color:"#7eb85a",fontFamily:T.fm}}>Råvare: {sRaw.toFixed(1)}</span>
+                <span style={{color:"#b8a44e",fontFamily:T.fm}}>Emb: {sPack.toFixed(1)}</span>
+                <span style={{color:"#8a7a5a",fontFamily:T.fm}}>OH: {sOh.toFixed(1)}</span>
+                <span style={{color:T.warn,fontFamily:T.fm,fontWeight:600}}>Kostpris: {sTotal.toFixed(1)} kr</span>
+                {sDb!=null&&<span style={{color:sDb>=0?T.ok:T.red,fontFamily:T.fm,fontWeight:700}}>DB: {sDb.toFixed(0)} kr {sDbPct!=null&&`(${sDbPct}%)`}</span>}
+                {sDb==null&&<span style={{color:T.dim,fontFamily:T.fm}}>Angiv engrospris for DB</span>}
+              </div>
+            </div>
+            {sWp>0&&<div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+              <Btn small primary onClick={()=>{const newPrices={...data.prices,byRecipe:{...(data.prices.byRecipe||{}),[simRid]:{...(data.prices.byRecipe?.[simRid]||{}),wholesale:sWp}}};save({...data,prices:newPrices})}}>✓ Gem engrospris</Btn>
+            </div>}
+          </>
+        })()}
+      </div>}
+    </Card>
+
     {editP&&<Modal title="Priser" onClose={()=>setEditP(false)}><Field label="Retail 250ml" tip="Vejledende udsalgspris til slutkunde"><input type="number" value={pf.retail250||0} onChange={e=>setPf({...pf,retail250:parseFloat(e.target.value)||0})}/></Field><Field label="Engros 250ml" tip="B2B pris til restauranter og forhandlere"><input type="number" value={pf.wholesale250||0} onChange={e=>setPf({...pf,wholesale250:parseFloat(e.target.value)||0})}/></Field><Field label="Retail 500ml"><input type="number" value={pf.retail500||0} onChange={e=>setPf({...pf,retail500:parseFloat(e.target.value)||0})}/></Field><Field label="Engros 500ml"><input type="number" value={pf.wholesale500||0} onChange={e=>setPf({...pf,wholesale500:parseFloat(e.target.value)||0})}/></Field><Field label="Overhead pr. måned" tip="Faste udgifter (lager, transport, forsikring)"><input type="number" value={pf.overhead||0} onChange={e=>setPf({...pf,overhead:parseFloat(e.target.value)||0})}/></Field><div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn onClick={()=>setEditP(false)}>Annuller</Btn><Btn primary onClick={()=>{save({...data,prices:pf});setEditP(false)}}>✓ Gem</Btn></div></Modal>}
   </div>
 }
