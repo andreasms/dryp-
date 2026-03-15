@@ -149,10 +149,10 @@ function Dashboard({data,supabase,setPage,setBatchNav,rawStock={}}){
     <div style={{marginBottom:20}}>
       <div style={{fontSize:10,fontWeight:700,color:T.dim,letterSpacing:".1em",textTransform:"uppercase",marginBottom:8}}>Hurtige handlinger</div>
       <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
-        <Btn primary onClick={()=>setPage("production")}>▶ Start produktion</Btn>
-        <Btn onClick={()=>setPage("inventory")}>+ Opret lot</Btn>
-        <Btn onClick={()=>setPage("batches")}>⬢ Batches{activeBatches.length>0&&<span style={{marginLeft:6,background:T.warn,color:"#000",borderRadius:9,padding:"1px 6px",fontSize:10,fontWeight:700}}>{activeBatches.length}</span>}</Btn>
-        <Btn onClick={()=>setPage("inventory")}>▦ Lager{low.length>0&&<span style={{marginLeft:6,background:T.red,color:"#fff",borderRadius:9,padding:"1px 6px",fontSize:10,fontWeight:700}}>{low.length}</span>}</Btn>
+        <Btn primary onClick={()=>setPage("production")}>Start produktion</Btn>
+        <Btn onClick={()=>setPage("inventory")}>Opret råvare-lot</Btn>
+        <Btn onClick={()=>setPage("batches")}>Se alle batches{activeBatches.length>0&&<span style={{marginLeft:6,background:T.warn,color:"#000",borderRadius:9,padding:"1px 6px",fontSize:10,fontWeight:700}}>{activeBatches.length}</span>}</Btn>
+        <Btn onClick={()=>setPage("inventory")}>Se lagerbeholdning{low.length>0&&<span style={{marginLeft:6,background:T.red,color:"#fff",borderRadius:9,padding:"1px 6px",fontSize:10,fontWeight:700}}>{low.length}</span>}</Btn>
       </div>
     </div>
 
@@ -173,23 +173,23 @@ function Dashboard({data,supabase,setPage,setBatchNav,rawStock={}}){
       <div style={{fontSize:14,fontWeight:600,color:T.warn,marginBottom:10}}>⚡ Kræver opmærksomhed</div>
       {low.length>0&&<div style={{fontSize:13,marginBottom:6,color:T.txt,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
         <span>🔴 <strong>{low.length} lagervare{low.length>1?"r":""}</strong> under minimum: {low.map(i=>i.name).join(", ")}</span>
-        <button onClick={()=>setPage("inventory")} style={{background:"none",color:T.acc,fontSize:12,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap",marginLeft:12}}>Se lager →</button>
+        <Btn small onClick={()=>setPage("inventory")}>Se lager</Btn>
       </div>}
       {openDevs.length>0&&<div style={{fontSize:13,marginBottom:6,color:T.txt,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
         <span>⚠️ <strong>{openDevs.length} åben{openDevs.length>1?"e":""} afvigelse{openDevs.length>1?"r":""}</strong> i HACCP</span>
-        <button onClick={()=>setPage("haccp")} style={{background:"none",color:T.acc,fontSize:12,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap",marginLeft:12}}>Se afvigelser →</button>
+        <Btn small onClick={()=>setPage("haccp")}>Se afvigelser</Btn>
       </div>}
       {pendingOrders.length>0&&<div style={{fontSize:13,color:T.txt,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
         <span>📦 <strong>{pendingOrders.length} ordre{pendingOrders.length>1?"r":""}</strong> afventer levering</span>
-        <button onClick={()=>setPage("customers")} style={{background:"none",color:T.acc,fontSize:12,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap",marginLeft:12}}>Se ordrer →</button>
+        <Btn small onClick={()=>setPage("customers")}>Se ordrer</Btn>
       </div>}
     </Card>}
 
     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
-      <Card><div style={{fontSize:13,fontWeight:600,marginBottom:12}}>Aktive produkter</div>{(data.recipes||[]).filter(r=>r.active).length===0?<div style={{color:T.dim,fontSize:13,lineHeight:1.6}}>Ingen opskrifter endnu.<br/><button onClick={()=>setPage("recipes")} style={{background:"none",color:T.acc,fontSize:12,fontWeight:600,cursor:"pointer",marginTop:4}}>Opret en opskrift →</button></div>:(data.recipes||[]).filter(r=>r.active).map(r=>{
+      <Card><div style={{fontSize:13,fontWeight:600,marginBottom:12}}>Aktive produkter</div>{(data.recipes||[]).filter(r=>r.active).length===0?<div style={{color:T.dim,fontSize:13,lineHeight:1.6}}>Ingen opskrifter endnu.<br/><Btn small onClick={()=>setPage("recipes")} style={{marginTop:8}}>Opret en opskrift</Btn></div>:(data.recipes||[]).filter(r=>r.active).map(r=>{
         const rawCost=(r.bom||[]).filter(b=>{const inv=data.inventory.find(x=>x.id===b.itemId);return inv?.cat==="Råvare"}).reduce((s,b)=>{const inv=data.inventory.find(x=>x.id===b.itemId);return s+(inv?.costPer||0)*b.qty},0)
         return<div key={r.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderBottom:`1px solid ${T.brdL}`,fontSize:13}}><span>{r.name}</span><div style={{display:"flex",gap:8,alignItems:"center"}}><span style={{fontSize:11,color:T.dim,fontFamily:T.fm}}>Råvare: {rawCost.toFixed(0)} kr</span><Badge c={T.ok}>Aktiv</Badge></div></div>})}</Card>
-      <Card><div style={{fontSize:13,fontWeight:600,marginBottom:12}}>Seneste produktioner</div>{data.productions.length===0?<div style={{color:T.dim,fontSize:13,lineHeight:1.6}}>Ingen produktioner registreret endnu.<br/><button onClick={()=>setPage("production")} style={{background:"none",color:T.acc,fontSize:12,fontWeight:600,cursor:"pointer",marginTop:4}}>Start en produktion →</button></div>:[...data.productions].sort((a,b)=>(b.date||"").localeCompare(a.date||"")).slice(0,5).map(p=><div key={p.id} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:`1px solid ${T.brdL}`}}><div><span style={{fontSize:13,fontWeight:500}}>{p.batchId}</span><span style={{fontSize:12,color:T.dim,marginLeft:8}}>{p.recipeName} · {p.date}</span></div><div style={{display:"flex",gap:5}}><Badge c={p.ccp1Ok?T.ok:T.red}>CCP1</Badge><Badge c={p.ccp2Ok?T.ok:T.red}>CCP2</Badge></div></div>)}</Card>
+      <Card><div style={{fontSize:13,fontWeight:600,marginBottom:12}}>Seneste produktioner</div>{data.productions.length===0?<div style={{color:T.dim,fontSize:13,lineHeight:1.6}}>Ingen produktioner registreret endnu.<br/><Btn small onClick={()=>setPage("production")} style={{marginTop:8}}>Start en produktion</Btn></div>:[...data.productions].sort((a,b)=>(b.date||"").localeCompare(a.date||"")).slice(0,5).map(p=><div key={p.id} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:`1px solid ${T.brdL}`}}><div><span style={{fontSize:13,fontWeight:500}}>{p.batchId}</span><span style={{fontSize:12,color:T.dim,marginLeft:8}}>{p.recipeName} · {p.date}</span></div><div style={{display:"flex",gap:5}}><Badge c={p.ccp1Ok?T.ok:T.red}>CCP1</Badge><Badge c={p.ccp2Ok?T.ok:T.red}>CCP2</Badge></div></div>)}</Card>
     </div>
   </div>
 }
@@ -227,8 +227,8 @@ function Recipes({data,update}){
         <div style={{display:"flex",gap:8,alignItems:"center"}}>
           <div style={{textAlign:"right",marginRight:8}}><div style={{fontSize:11,color:T.dim}}>Råvare: <span style={{color:T.warn,fontFamily:T.fm}}>{costRaw(r).toFixed(1)} kr</span></div><div style={{fontSize:11,color:T.dim}}>Emballage: <span style={{color:T.mid,fontFamily:T.fm}}>{costPack(r).toFixed(1)} kr</span></div></div>
           <Badge c={r.active?T.ok:T.dim}>{r.active?"Aktiv":"Inaktiv"}</Badge>
-          <Btn small onClick={()=>{setForm(migrateBom(r));setShow(true)}}>✎ Rediger</Btn>
-          <Btn small danger onClick={()=>{if(confirm(`Slet "${r.name}"?`))update("recipes",prev=>prev.filter(x=>x.id!==r.id))}}>✕ Slet</Btn>
+          <Btn small onClick={()=>{setForm(migrateBom(r));setShow(true)}}>Rediger opskrift</Btn>
+          <Btn small danger onClick={()=>{if(confirm(`Slet "${r.name}"?`))update("recipes",prev=>prev.filter(x=>x.id!==r.id))}}>Slet</Btn>
         </div>
       </div>
       <div style={{display:"flex",gap:20,marginTop:10}}>
@@ -459,7 +459,7 @@ function Batches({data,update,supabase,batchNav,setBatchNav,refreshStock}){
             <div style={{display:"flex",gap:8,alignItems:"center"}}>
               <Badge c={bStatusC}>{bStatusL}</Badge>
               {!isSql&&<><Btn small onClick={e=>{e.stopPropagation();setForm({...b,gtin:b.gtin||"",gs1Note:b.gs1Note||""});setShow(true)}}>✎ Rediger</Btn><Btn small danger onClick={e=>{e.stopPropagation();if(confirm("Slet?"))update("batches",prev=>prev.filter(x=>x.id!==b.id))}}>✕ Slet</Btn></>}
-              {isSql&&<span style={{color:T.dim,fontSize:20,lineHeight:1}}>›</span>}
+              {isSql&&<Btn small onClick={e=>{e.stopPropagation();setSelectedId(b.id)}}>{b.status==="planned"?"Start":"Åbn"}</Btn>}
             </div>
           </div>
         </Card>
