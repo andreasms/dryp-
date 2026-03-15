@@ -254,7 +254,7 @@ function Recipes({data,update}){
           <select value={b.itemId} onChange={e=>{const bom=[...form.rawBom];bom[i]={...bom[i],itemId:e.target.value,unit:data.inventory.find(x=>x.id===e.target.value)?.unit||"L"};setForm({...form,rawBom:bom})}} style={{flex:2}}>{rawItems.map(inv=><option key={inv.id} value={inv.id}>{inv.name}</option>)}<option value="">— Tilføj ny i Lager —</option></select>
           <input type="number" step=".01" value={b.qty} onChange={e=>{const bom=[...form.rawBom];bom[i]={...bom[i],qty:parseFloat(e.target.value)||0};setForm({...form,rawBom:bom})}} style={{flex:1}}/>
           <span style={{fontSize:11,color:T.dim,width:30}}>{b.unit}</span>
-          <button onClick={()=>setForm({...form,rawBom:form.rawBom.filter((_,j)=>j!==i)})} style={{background:T.card2,color:T.red,fontSize:11,fontWeight:600,cursor:"pointer",padding:"4px 10px",borderRadius:6,border:`1px solid ${T.brd}`}}>✕ Fjern</button>
+          <Btn small danger onClick={()=>setForm({...form,rawBom:form.rawBom.filter((_,j)=>j!==i)})}>✕ Fjern</Btn>
         </div>)}
       </div>
 
@@ -265,7 +265,7 @@ function Recipes({data,update}){
           <select value={b.itemId} onChange={e=>{const bom=[...form.packBom];bom[i]={...bom[i],itemId:e.target.value,unit:data.inventory.find(x=>x.id===e.target.value)?.unit||"stk"};setForm({...form,packBom:bom})}} style={{flex:2}}>{packItems.map(inv=><option key={inv.id} value={inv.id}>{inv.name}</option>)}</select>
           <input type="number" step=".01" value={b.qty} onChange={e=>{const bom=[...form.packBom];bom[i]={...bom[i],qty:parseFloat(e.target.value)||0};setForm({...form,packBom:bom})}} style={{flex:1}}/>
           <span style={{fontSize:11,color:T.dim,width:30}}>{b.unit}</span>
-          <button onClick={()=>setForm({...form,packBom:form.packBom.filter((_,j)=>j!==i)})} style={{background:T.card2,color:T.red,fontSize:11,fontWeight:600,cursor:"pointer",padding:"4px 10px",borderRadius:6,border:`1px solid ${T.brd}`}}>✕ Fjern</button>
+          <Btn small danger onClick={()=>setForm({...form,packBom:form.packBom.filter((_,j)=>j!==i)})}>✕ Fjern</Btn>
         </div>)}
       </div>
 
@@ -275,7 +275,7 @@ function Recipes({data,update}){
         {(form.steps||[]).map((s,i)=><div key={i} style={{display:"flex",gap:8,marginBottom:6,alignItems:"center"}}>
           <span style={{fontSize:11,color:T.dim,width:22,textAlign:"right"}}>{i+1}.</span>
           <input value={s} onChange={e=>{const steps=[...form.steps];steps[i]=e.target.value;setForm({...form,steps})}} style={{flex:1}}/>
-          <button onClick={()=>setForm({...form,steps:form.steps.filter((_,j)=>j!==i)})} style={{background:T.card2,color:T.red,fontSize:11,fontWeight:600,cursor:"pointer",padding:"4px 10px",borderRadius:6,border:`1px solid ${T.brd}`}}>✕ Fjern</button>
+          <Btn small danger onClick={()=>setForm({...form,steps:form.steps.filter((_,j)=>j!==i)})}>✕ Fjern</Btn>
         </div>)}
       </div>
       <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:16}}><Btn onClick={()=>setShow(false)}>Annuller</Btn><Btn primary onClick={doSave}>✓ Gem opskrift</Btn></div>
@@ -973,10 +973,10 @@ function Inventory({data,update,supabase,rawStock={},refreshStock}){
           <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
             {eId===item.id
               ?<div style={{display:"flex",gap:6,alignItems:"center"}}><input type="number" value={qv} onChange={e=>setQv(e.target.value)} style={{width:70}} autoFocus onKeyDown={e=>{if(e.key==="Enter"){update("inventory",p=>p.map(i=>i.id===item.id?{...i,qty:parseFloat(qv)||0}:i));setEId(null)}}}/><Btn small primary onClick={()=>{update("inventory",p=>p.map(i=>i.id===item.id?{...i,qty:parseFloat(qv)||0}:i));setEId(null)}}>✓ Gem</Btn><Btn small onClick={()=>setEId(null)}>Annuller</Btn></div>
-              :<button onClick={()=>{setEId(item.id);setQv(String(sq))}} style={{display:"inline-flex",alignItems:"baseline",gap:5,padding:"6px 14px",borderRadius:8,fontSize:12,fontWeight:600,background:T.card2,color:low?T.red:T.txt,border:`1px solid ${T.brd}`,cursor:"pointer"}}><span style={{fontSize:18,fontFamily:T.fm,fontWeight:700}}>{sq}</span><span style={{color:T.dim}}>{item.unit}</span>{!hasSql&&<span style={{color:T.acc,marginLeft:2}}>· Ret antal</span>}</button>}
-            {item.cat==="Råvare"&&<button onClick={()=>{setLotForm({item_id:item.id,item_name:item.name,item_unit:item.unit,lot_number:"",supplier:"",qty_received:"",received_date:today(),expiry_date:""});setShowLot(true)}} style={{display:"inline-flex",alignItems:"center",gap:5,padding:"6px 14px",borderRadius:8,fontSize:12,fontWeight:600,background:T.accD,color:T.acc,border:`1px solid ${T.acc}44`,cursor:"pointer"}}>+ Opret lot</button>}
-            <button onClick={()=>{setForm(item);setShow(true)}} style={{display:"inline-flex",alignItems:"center",gap:5,padding:"6px 14px",borderRadius:8,fontSize:12,fontWeight:600,background:T.card2,color:T.txt,border:`1px solid ${T.brd}`,cursor:"pointer"}}>✎ Rediger</button>
-            <button onClick={()=>{if(confirm(`Slet "${item.name}"?`))update("inventory",p=>p.filter(x=>x.id!==item.id))}} style={{display:"inline-flex",alignItems:"center",gap:5,padding:"6px 14px",borderRadius:8,fontSize:12,fontWeight:600,background:T.red,color:"#fff",border:"none",cursor:"pointer"}}>✕ Slet</button>
+              :<Btn small onClick={()=>{setEId(item.id);setQv(String(sq))}} style={{color:low?T.red:T.txt}}><span style={{fontSize:18,fontFamily:T.fm,fontWeight:700}}>{sq}</span><span style={{color:T.dim}}>{item.unit}</span>{!hasSql&&<span style={{color:T.acc}}>· Ret antal</span>}</Btn>}
+            {item.cat==="Råvare"&&<Btn small onClick={()=>{setLotForm({item_id:item.id,item_name:item.name,item_unit:item.unit,lot_number:"",supplier:"",qty_received:"",received_date:today(),expiry_date:""});setShowLot(true)}} style={{background:T.accD,color:T.acc,border:`1px solid ${T.acc}44`}}>+ Opret lot</Btn>}
+            <Btn small onClick={()=>{setForm(item);setShow(true)}}>✎ Rediger</Btn>
+            <Btn small danger onClick={()=>{if(confirm(`Slet "${item.name}"?`))update("inventory",p=>p.filter(x=>x.id!==item.id))}}>✕ Slet</Btn>
           </div></div>
         <div style={{marginTop:6,height:4,background:T.input,borderRadius:2,overflow:"hidden"}}><div style={{height:"100%",width:`${Math.min(sq/(item.min||1)*100,100)}%`,background:low?T.red:sq<item.min*1.5?T.warn:T.ok,borderRadius:2}}/></div>
         {item.cat==="Råvare"&&activeLots.filter(l=>l.item_id===item.id).length>0&&<div style={{marginTop:8,paddingTop:8,borderTop:`1px solid ${T.brdL}`}}>
