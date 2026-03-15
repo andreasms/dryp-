@@ -254,7 +254,7 @@ function Recipes({data,update}){
           <select value={b.itemId} onChange={e=>{const bom=[...form.rawBom];bom[i]={...bom[i],itemId:e.target.value,unit:data.inventory.find(x=>x.id===e.target.value)?.unit||"L"};setForm({...form,rawBom:bom})}} style={{flex:2}}>{rawItems.map(inv=><option key={inv.id} value={inv.id}>{inv.name}</option>)}<option value="">— Tilføj ny i Lager —</option></select>
           <input type="number" step=".01" value={b.qty} onChange={e=>{const bom=[...form.rawBom];bom[i]={...bom[i],qty:parseFloat(e.target.value)||0};setForm({...form,rawBom:bom})}} style={{flex:1}}/>
           <span style={{fontSize:11,color:T.dim,width:30}}>{b.unit}</span>
-          <Btn small danger onClick={()=>setForm({...form,rawBom:form.rawBom.filter((_,j)=>j!==i)})}>✕ Fjern</Btn>
+          <Btn small danger onClick={()=>setForm({...form,rawBom:form.rawBom.filter((_,j)=>j!==i)})}>Fjern</Btn>
         </div>)}
       </div>
 
@@ -265,7 +265,7 @@ function Recipes({data,update}){
           <select value={b.itemId} onChange={e=>{const bom=[...form.packBom];bom[i]={...bom[i],itemId:e.target.value,unit:data.inventory.find(x=>x.id===e.target.value)?.unit||"stk"};setForm({...form,packBom:bom})}} style={{flex:2}}>{packItems.map(inv=><option key={inv.id} value={inv.id}>{inv.name}</option>)}</select>
           <input type="number" step=".01" value={b.qty} onChange={e=>{const bom=[...form.packBom];bom[i]={...bom[i],qty:parseFloat(e.target.value)||0};setForm({...form,packBom:bom})}} style={{flex:1}}/>
           <span style={{fontSize:11,color:T.dim,width:30}}>{b.unit}</span>
-          <Btn small danger onClick={()=>setForm({...form,packBom:form.packBom.filter((_,j)=>j!==i)})}>✕ Fjern</Btn>
+          <Btn small danger onClick={()=>setForm({...form,packBom:form.packBom.filter((_,j)=>j!==i)})}>Fjern</Btn>
         </div>)}
       </div>
 
@@ -275,7 +275,7 @@ function Recipes({data,update}){
         {(form.steps||[]).map((s,i)=><div key={i} style={{display:"flex",gap:8,marginBottom:6,alignItems:"center"}}>
           <span style={{fontSize:11,color:T.dim,width:22,textAlign:"right"}}>{i+1}.</span>
           <input value={s} onChange={e=>{const steps=[...form.steps];steps[i]=e.target.value;setForm({...form,steps})}} style={{flex:1}}/>
-          <Btn small danger onClick={()=>setForm({...form,steps:form.steps.filter((_,j)=>j!==i)})}>✕ Fjern</Btn>
+          <Btn small danger onClick={()=>setForm({...form,steps:form.steps.filter((_,j)=>j!==i)})}>Fjern</Btn>
         </div>)}
       </div>
       <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:16}}><Btn onClick={()=>setShow(false)}>Annuller</Btn><Btn primary onClick={doSave}>✓ Gem opskrift</Btn></div>
@@ -297,7 +297,7 @@ function Production({data,update,supabase,setPage,setBatchNav}){
         {exp===p.id&&<div className="fade-in" style={{marginTop:14,paddingTop:14,borderTop:`1px solid ${T.brdL}`,display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:"6px 20px",fontSize:12}}>
           {[["Rapsolie",`${p.rapsolieQty||"—"}L`],["Lot",p.rapsolieLot],["Dild",`${p.dildQty||"—"}kg`],["CCP1 start",`${p.ccp1TempStart||"—"}°C`],["CCP1 slut",`${p.ccp1TempEnd||"—"}°C`],["Tid",p.infusionTime],["250ml",p.bottles250],["500ml",p.bottles500],["Lagertemp",`${p.tempStorage||"—"}°C`]].map(([k,v])=><div key={k}><span style={{color:T.dim}}>{k}:</span> <span style={{color:T.txt}}>{v||"—"}</span></div>)}
           {p.notes&&<div style={{gridColumn:"1/-1",color:T.dim,fontStyle:"italic",marginTop:4}}>{p.notes}</div>}
-          <div style={{gridColumn:"1/-1",marginTop:8,display:"flex",gap:8}}><Btn small onClick={e=>{e.stopPropagation();setForm(p);setShow(true)}}>✎ Rediger</Btn><Btn small danger onClick={e=>{e.stopPropagation();if(confirm("Slet?"))update("productions",prev=>prev.filter(x=>x.id!==p.id))}}>✕ Slet</Btn>{p.batchId&&setBatchNav&&<Btn small onClick={e=>{e.stopPropagation();setBatchNav({batchId:p.batchId});setPage("batches")}} style={{color:T.acc,borderColor:T.acc}}>Gå til batch →</Btn>}</div>
+          <div style={{gridColumn:"1/-1",marginTop:8,display:"flex",gap:8}}><Btn small onClick={e=>{e.stopPropagation();setForm(p);setShow(true)}}>Rediger</Btn><Btn small danger onClick={e=>{e.stopPropagation();if(confirm("Slet?"))update("productions",prev=>prev.filter(x=>x.id!==p.id))}}>Slet</Btn>{p.batchId&&setBatchNav&&<Btn small onClick={e=>{e.stopPropagation();setBatchNav({batchId:p.batchId});setPage("batches")}} style={{color:T.acc,borderColor:T.acc}}>Gå til batch →</Btn>}</div>
         </div>}
       </Card>)}
     {show&&<Modal title={`Produktion · ${form.batchId}`} onClose={()=>setShow(false)} wide>
@@ -458,7 +458,7 @@ function Batches({data,update,supabase,batchNav,setBatchNav,refreshStock}){
             </div>
             <div style={{display:"flex",gap:8,alignItems:"center"}}>
               <Badge c={bStatusC}>{bStatusL}</Badge>
-              {!isSql&&<><Btn small onClick={e=>{e.stopPropagation();setForm({...b,gtin:b.gtin||"",gs1Note:b.gs1Note||""});setShow(true)}}>✎ Rediger</Btn><Btn small danger onClick={e=>{e.stopPropagation();if(confirm("Slet?"))update("batches",prev=>prev.filter(x=>x.id!==b.id))}}>✕ Slet</Btn></>}
+              {!isSql&&<><Btn small onClick={e=>{e.stopPropagation();setForm({...b,gtin:b.gtin||"",gs1Note:b.gs1Note||""});setShow(true)}}>Rediger</Btn><Btn small danger onClick={e=>{e.stopPropagation();if(confirm("Slet?"))update("batches",prev=>prev.filter(x=>x.id!==b.id))}}>Slet</Btn></>}
               {isSql&&<Btn small onClick={e=>{e.stopPropagation();setSelectedId(b.id)}}>{b.status==="planned"?"Start":"Åbn"}</Btn>}
             </div>
           </div>
@@ -790,8 +790,8 @@ function HACCPLogs({data,update,supabase,user}){
           {cat==="receiving"&&<Dot s={p.approved?"ok":"warn"}/>}
           {cat==="deviations"&&<Badge c={p.closedDate?T.ok:T.red}>{p.closedDate?"Lukket":"Åben"}</Badge>}
           {cat==="maintenance"&&<Badge c={p.status==="OK"?T.ok:T.warn}>{p.status||"—"}</Badge>}
-          {editable&&<Btn small onClick={()=>editEntry(e)}>✎ Rediger</Btn>}
-          {editable&&<Btn small danger onClick={()=>doDelete(e)}>✕ Slet</Btn>}
+          {editable&&<Btn small onClick={()=>editEntry(e)}>Rediger</Btn>}
+          {editable&&<Btn small danger onClick={()=>doDelete(e)}>Slet</Btn>}
         </div>
       </div>
       {e.notes&&<div style={{fontSize:12,color:T.dim,marginTop:4,fontStyle:"italic"}}>{e.notes}</div>}
@@ -975,8 +975,8 @@ function Inventory({data,update,supabase,rawStock={},refreshStock}){
               ?<div style={{display:"flex",gap:6,alignItems:"center"}}><input type="number" value={qv} onChange={e=>setQv(e.target.value)} style={{width:70}} autoFocus onKeyDown={e=>{if(e.key==="Enter"){update("inventory",p=>p.map(i=>i.id===item.id?{...i,qty:parseFloat(qv)||0}:i));setEId(null)}}}/><Btn small primary onClick={()=>{update("inventory",p=>p.map(i=>i.id===item.id?{...i,qty:parseFloat(qv)||0}:i));setEId(null)}}>✓ Gem</Btn><Btn small onClick={()=>setEId(null)}>Annuller</Btn></div>
               :<Btn small onClick={()=>{setEId(item.id);setQv(String(sq))}} style={{color:low?T.red:T.txt}}><span style={{fontSize:18,fontFamily:T.fm,fontWeight:700}}>{sq}</span><span style={{color:T.dim}}>{item.unit}</span>{!hasSql&&<span style={{color:T.acc}}>· Ret antal</span>}</Btn>}
             {item.cat==="Råvare"&&<Btn small onClick={()=>{setLotForm({item_id:item.id,item_name:item.name,item_unit:item.unit,lot_number:"",supplier:"",qty_received:"",received_date:today(),expiry_date:""});setShowLot(true)}} style={{background:T.accD,color:T.acc,border:`1px solid ${T.acc}44`}}>+ Opret lot</Btn>}
-            <Btn small onClick={()=>{setForm(item);setShow(true)}}>✎ Rediger</Btn>
-            <Btn small danger onClick={()=>{if(confirm(`Slet "${item.name}"?`))update("inventory",p=>p.filter(x=>x.id!==item.id))}}>✕ Slet</Btn>
+            <Btn small onClick={()=>{setForm(item);setShow(true)}}>Rediger vare</Btn>
+            <Btn small danger onClick={()=>{if(confirm(`Slet "${item.name}"?`))update("inventory",p=>p.filter(x=>x.id!==item.id))}}>Slet</Btn>
           </div></div>
         <div style={{marginTop:6,height:4,background:T.input,borderRadius:2,overflow:"hidden"}}><div style={{height:"100%",width:`${Math.min(sq/(item.min||1)*100,100)}%`,background:low?T.red:sq<item.min*1.5?T.warn:T.ok,borderRadius:2}}/></div>
         {item.cat==="Råvare"&&activeLots.filter(l=>l.item_id===item.id).length>0&&<div style={{marginTop:8,paddingTop:8,borderTop:`1px solid ${T.brdL}`}}>
@@ -1036,12 +1036,12 @@ function Planning({data,update,rawStock={}}){
   const needs={};recipes.forEach(r=>{const qty=parseInt(planQty[r.id])||0;(r.bom||[]).forEach(b=>{if(!needs[b.itemId])needs[b.itemId]={required:0,items:[]};needs[b.itemId].required+=b.qty*qty;needs[b.itemId].items.push({recipe:r.name,total:b.qty*qty})})})
   const plan=data.inventory.map(inv=>{const sq=getStock(inv,rawStock);const n=needs[inv.id]||{required:0,items:[]};const deficit=Math.max(0,n.required-sq);const oq=deficit>0?Math.ceil(deficit/10)*10:0;return{...inv,_sq:sq,need:n.required,deficit,orderQty:oq,orderBy:oq>0?addDays(today(),-(inv.leadDays||7)):null,needsOrder:oq>0}}).sort((a,b)=>(b.needsOrder?1:0)-(a.needsOrder?1:0))
   return<div style={{maxWidth:1060}}>
-    <SH title="Indkøbsplan" desc="Beregnet fra opskrifter og lagerstatus" tip="Angiv antal flasker du vil producere. Systemet beregner indkøbsbehov. Klik ✎ for at ændre leverandør, pris og lead time direkte."/>
+    <SH title="Indkøbsplan" desc="Beregnet fra opskrifter og lagerstatus" tip="Angiv antal flasker du vil producere. Systemet beregner indkøbsbehov. Klik Rediger for at ændre leverandør, pris og lead time direkte."/>
     <Card style={{marginBottom:20}}><div style={{fontSize:13,fontWeight:600,marginBottom:14}}>Planlagt produktion</div><div style={{display:"flex",gap:16,flexWrap:"wrap"}}>{recipes.map(r=><div key={r.id} style={{flex:"1 1 220px"}}><div style={{fontSize:13,color:T.mid,marginBottom:5}}>{r.name}</div><div style={{display:"flex",alignItems:"center",gap:10}}><input type="number" value={planQty[r.id]||0} onChange={e=>setPlanQty({...planQty,[r.id]:e.target.value})} style={{width:90,textAlign:"center"}}/><span style={{fontSize:12,color:T.dim}}>flasker</span></div></div>)}</div></Card>
     <div style={{fontSize:14,fontWeight:600,marginBottom:14}}>Indkøbsbehov</div>
     {plan.map(item=><Card key={item.id} style={{marginBottom:8,padding:14,borderLeft:item.needsOrder?`4px solid ${T.red}`:`4px solid ${T.ok}`}}>
       {editItem===item.id?<div className="fade-in"><div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:"0 14px"}}><Field label="Navn"><input value={ef.name} onChange={e=>setEf({...ef,name:e.target.value})}/></Field><Field label="Enhed"><input value={ef.unit} onChange={e=>setEf({...ef,unit:e.target.value})}/></Field><Field label="Pris pr. enhed"><input type="number" step=".1" value={ef.costPer} onChange={e=>setEf({...ef,costPer:parseFloat(e.target.value)||0})}/></Field><Field label="Leverandør"><input value={ef.supplier} onChange={e=>setEf({...ef,supplier:e.target.value})}/></Field><Field label="Lead time (dage)"><input type="number" value={ef.leadDays} onChange={e=>setEf({...ef,leadDays:parseInt(e.target.value)||0})}/></Field><Field label="Minimum"><input type="number" value={ef.min} onChange={e=>setEf({...ef,min:parseFloat(e.target.value)||0})}/></Field></div><div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn small onClick={()=>setEditItem(null)}>Annuller</Btn><Btn small primary onClick={()=>{update("inventory",prev=>prev.map(i=>i.id===editItem?{...i,...ef}:i));setEditItem(null)}}>✓ Gem</Btn></div></div>:
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><div><div style={{fontSize:14,fontWeight:500}}>{item.name}</div><div style={{fontSize:12,color:T.dim}}>Behov: {item.need.toFixed(1)} {item.unit} · Lager: {item._sq} · Lead: {item.leadDays}d{item.supplier&&` · ${item.supplier}`} · {fk(item.costPer)}/{item.unit}</div></div><div style={{display:"flex",alignItems:"center",gap:10}}><Btn small onClick={()=>{setEditItem(item.id);setEf({name:item.name,costPer:item.costPer,supplier:item.supplier,leadDays:item.leadDays,min:item.min,unit:item.unit})}}>✎ Rediger</Btn>{item.needsOrder?<div style={{textAlign:"right"}}><div style={{fontSize:18,fontWeight:700,fontFamily:T.fm,color:T.red}}>{item.orderQty} {item.unit}</div><div style={{fontSize:11,color:T.warn}}>Bestil senest {item.orderBy}</div><div style={{fontSize:11,color:T.dim}}>~{fk(Math.round(item.orderQty*(item.costPer||0)))}</div></div>:<Badge c={T.ok}>OK</Badge>}</div></div>}
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><div><div style={{fontSize:14,fontWeight:500}}>{item.name}</div><div style={{fontSize:12,color:T.dim}}>Behov: {item.need.toFixed(1)} {item.unit} · Lager: {item._sq} · Lead: {item.leadDays}d{item.supplier&&` · ${item.supplier}`} · {fk(item.costPer)}/{item.unit}</div></div><div style={{display:"flex",alignItems:"center",gap:10}}><Btn small onClick={()=>{setEditItem(item.id);setEf({name:item.name,costPer:item.costPer,supplier:item.supplier,leadDays:item.leadDays,min:item.min,unit:item.unit})}}>Rediger</Btn>{item.needsOrder?<div style={{textAlign:"right"}}><div style={{fontSize:18,fontWeight:700,fontFamily:T.fm,color:T.red}}>{item.orderQty} {item.unit}</div><div style={{fontSize:11,color:T.warn}}>Bestil senest {item.orderBy}</div><div style={{fontSize:11,color:T.dim}}>~{fk(Math.round(item.orderQty*(item.costPer||0)))}</div></div>:<Badge c={T.ok}>OK</Badge>}</div></div>}
     </Card>)}
     <Card style={{marginTop:18,background:T.accD,border:"none"}}><div style={{fontSize:13,fontWeight:600,marginBottom:6}}>Total indkøb</div><div style={{fontSize:22,fontWeight:700,fontFamily:T.fm,color:T.acc}}>{fk(Math.round(plan.reduce((s,i)=>s+i.orderQty*(i.costPer||0),0)))}</div></Card>
   </div>
@@ -1053,8 +1053,8 @@ function Customers({data,update}){
   const doSave=()=>{if(ft==="c")update("customers",p=>[form,...p.filter(c=>c.id!==form.id)]);else update("orders",p=>[form,...p.filter(o=>o.id!==form.id)]);setShow(false)}
   return<div style={{maxWidth:1060}}>
     <Tabs tabs={[["customers","Kunder"],["orders","Ordrer"]]} active={tab} onChange={setTab} right={<Btn primary small onClick={()=>{if(tab==="customers"){setFt("c");setForm({id:uid(),name:"",type:"restaurant",contact:"",email:"",phone:"",status:"lead",notes:"",created:today()})}else{setFt("o");setForm({id:uid(),customerId:data.customers[0]?.id||"",date:today(),product:recipes[0]?.name||"",qty:"",price:"",batchId:"",status:"bestilt",notes:""})}setShow(true)}}><Plus s={11} c={T.bg}/> {tab==="customers"?"Ny kunde":"Ny ordre"}</Btn>}/>
-    {tab==="customers"&&(data.customers.length===0?<Empty text="Ingen kunder endnu" action="Tilføj kunde" onAction={()=>{setFt("c");setForm({id:uid(),name:"",type:"restaurant",contact:"",email:"",phone:"",status:"lead",notes:"",created:today()});setShow(true)}}/>:data.customers.map(c=><Card key={c.id} style={{marginBottom:6,padding:12}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><div style={{display:"flex",alignItems:"center",gap:10}}><div style={{width:32,height:32,borderRadius:"50%",background:T.accD,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:700,color:T.acc}}>{c.name?.charAt(0)?.toUpperCase()}</div><div><div style={{fontSize:13,fontWeight:500}}>{c.name}</div><div style={{fontSize:12,color:T.dim}}>{c.type}{c.email&&` · ${c.email}`}</div></div></div><div style={{display:"flex",gap:6}}><Badge c={c.status==="aktiv"?T.ok:c.status==="lead"?T.acc:T.dim}>{c.status}</Badge><Btn small onClick={()=>{setFt("c");setForm(c);setShow(true)}}>✎ Rediger</Btn><Btn small danger onClick={()=>{if(confirm(`Slet?`))update("customers",p=>p.filter(x=>x.id!==c.id))}}>✕ Slet</Btn></div></div></Card>))}
-    {tab==="orders"&&(data.orders.length===0?<Empty text="Ingen ordrer"/>:<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}><thead><tr style={{borderBottom:`1px solid ${T.brd}`}}>{["Dato","Kunde","Produkt","Antal","Pris","Status",""].map(h=><th key={h} style={{textAlign:"left",padding:"8px 10px",fontSize:11,color:T.dim,fontWeight:600}}>{h}</th>)}</tr></thead><tbody>{[...data.orders].sort((a,b)=>(b.date||"").localeCompare(a.date||"")).map(o=><tr key={o.id} style={{borderBottom:`1px solid ${T.brdL}`}}><td style={{padding:"8px 10px",fontFamily:T.fm,fontSize:12,color:T.mid}}>{o.date}</td><td style={{padding:"8px 10px"}}>{data.customers.find(c=>c.id===o.customerId)?.name||"—"}</td><td style={{padding:"8px 10px",color:T.mid}}>{o.product}</td><td style={{padding:"8px 10px",fontFamily:T.fm}}>{o.qty}</td><td style={{padding:"8px 10px",fontFamily:T.fm}}>{o.price?`${o.price}kr`:"—"}</td><td style={{padding:"8px 10px"}}><Badge c={o.status==="leveret"?T.ok:o.status==="bestilt"?T.warn:T.acc}>{o.status}</Badge></td><td><Btn small onClick={()=>{setFt("o");setForm(o);setShow(true)}}>✎ Rediger</Btn></td></tr>)}</tbody></table></div>)}
+    {tab==="customers"&&(data.customers.length===0?<Empty text="Ingen kunder endnu" action="Tilføj kunde" onAction={()=>{setFt("c");setForm({id:uid(),name:"",type:"restaurant",contact:"",email:"",phone:"",status:"lead",notes:"",created:today()});setShow(true)}}/>:data.customers.map(c=><Card key={c.id} style={{marginBottom:6,padding:12}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><div style={{display:"flex",alignItems:"center",gap:10}}><div style={{width:32,height:32,borderRadius:"50%",background:T.accD,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:700,color:T.acc}}>{c.name?.charAt(0)?.toUpperCase()}</div><div><div style={{fontSize:13,fontWeight:500}}>{c.name}</div><div style={{fontSize:12,color:T.dim}}>{c.type}{c.email&&` · ${c.email}`}</div></div></div><div style={{display:"flex",gap:6}}><Badge c={c.status==="aktiv"?T.ok:c.status==="lead"?T.acc:T.dim}>{c.status}</Badge><Btn small onClick={()=>{setFt("c");setForm(c);setShow(true)}}>Rediger</Btn><Btn small danger onClick={()=>{if(confirm(`Slet?`))update("customers",p=>p.filter(x=>x.id!==c.id))}}>Slet</Btn></div></div></Card>))}
+    {tab==="orders"&&(data.orders.length===0?<Empty text="Ingen ordrer"/>:<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}><thead><tr style={{borderBottom:`1px solid ${T.brd}`}}>{["Dato","Kunde","Produkt","Antal","Pris","Status",""].map(h=><th key={h} style={{textAlign:"left",padding:"8px 10px",fontSize:11,color:T.dim,fontWeight:600}}>{h}</th>)}</tr></thead><tbody>{[...data.orders].sort((a,b)=>(b.date||"").localeCompare(a.date||"")).map(o=><tr key={o.id} style={{borderBottom:`1px solid ${T.brdL}`}}><td style={{padding:"8px 10px",fontFamily:T.fm,fontSize:12,color:T.mid}}>{o.date}</td><td style={{padding:"8px 10px"}}>{data.customers.find(c=>c.id===o.customerId)?.name||"—"}</td><td style={{padding:"8px 10px",color:T.mid}}>{o.product}</td><td style={{padding:"8px 10px",fontFamily:T.fm}}>{o.qty}</td><td style={{padding:"8px 10px",fontFamily:T.fm}}>{o.price?`${o.price}kr`:"—"}</td><td style={{padding:"8px 10px"}}><Badge c={o.status==="leveret"?T.ok:o.status==="bestilt"?T.warn:T.acc}>{o.status}</Badge></td><td><Btn small onClick={()=>{setFt("o");setForm(o);setShow(true)}}>Rediger</Btn></td></tr>)}</tbody></table></div>)}
     {show&&ft==="c"&&<Modal title={form.name||"Ny kunde"} onClose={()=>setShow(false)}><Field label="Navn"><input value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/></Field><Field label="Type"><select value={form.type} onChange={e=>setForm({...form,type:e.target.value})}><option value="restaurant">Restaurant</option><option value="delikatesse">Delikatesse</option><option value="detail">Detail</option><option value="engros">Engros</option></select></Field><Field label="Kontakt"><input value={form.contact} onChange={e=>setForm({...form,contact:e.target.value})}/></Field><Field label="Email"><input value={form.email} onChange={e=>setForm({...form,email:e.target.value})}/></Field><Field label="Telefon"><input value={form.phone} onChange={e=>setForm({...form,phone:e.target.value})}/></Field><Field label="Status"><select value={form.status} onChange={e=>setForm({...form,status:e.target.value})}><option value="lead">Lead</option><option value="prøve">Prøve sendt</option><option value="aktiv">Aktiv</option><option value="inaktiv">Inaktiv</option></select></Field><Field label="Noter"><textarea value={form.notes} onChange={e=>setForm({...form,notes:e.target.value})}/></Field><div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn onClick={()=>setShow(false)}>Annuller</Btn><Btn primary onClick={doSave}>✓ Gem</Btn></div></Modal>}
     {show&&ft==="o"&&<Modal title="Ordre" onClose={()=>setShow(false)}><Field label="Kunde"><select value={form.customerId} onChange={e=>setForm({...form,customerId:e.target.value})}>{data.customers.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></Field><Field label="Dato"><input type="date" value={form.date} onChange={e=>setForm({...form,date:e.target.value})}/></Field><Field label="Produkt"><select value={form.product} onChange={e=>setForm({...form,product:e.target.value})}>{recipes.map(r=><option key={r.id}>{r.name}</option>)}</select></Field><Field label="Antal"><input type="number" value={form.qty} onChange={e=>setForm({...form,qty:e.target.value})}/></Field><Field label="Pris pr. stk"><input type="number" value={form.price} onChange={e=>setForm({...form,price:e.target.value})}/></Field><Field label="Batch"><select value={form.batchId} onChange={e=>setForm({...form,batchId:e.target.value})}><option value="">—</option>{data.batches.map(b=><option key={b.id} value={b.id}>{b.id}</option>)}</select></Field><Field label="Status"><select value={form.status} onChange={e=>setForm({...form,status:e.target.value})}><option value="bestilt">Bestilt</option><option value="pakket">Pakket</option><option value="leveret">Leveret</option><option value="faktureret">Faktureret</option></select></Field><div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn onClick={()=>setShow(false)}>Annuller</Btn><Btn primary onClick={doSave}>✓ Gem</Btn></div></Modal>}
   </div>
@@ -1151,7 +1151,7 @@ function Economy({data,save,supabase}){
     {/* ─── B2: PRODUCT MARGIN CARDS ─── */}
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
       <span style={{fontSize:14,fontWeight:600}}>Produktmargin</span>
-      <Btn small onClick={()=>{setPf(p);setEditP(true)}}>✎ Priser</Btn>
+      <Btn small onClick={()=>{setPf(p);setEditP(true)}}>Rediger priser</Btn>
     </div>
     {recipes.map(r=>{
       const raw=costRaw(r.id);const pack=costPack(r.id)
@@ -1348,7 +1348,7 @@ function Documents({data,update,supabase}){
     {filteredDocs.length===0?<Empty text={activeFolder?`Ingen filer i "${activeFolder}"`:"Ingen dokumenter endnu"} action="Upload" onAction={()=>fileRef.current?.click()}/>:filteredDocs.map(doc=><Card key={doc.id} style={{marginBottom:8,padding:14}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
         <div style={{display:"flex",alignItems:"center",gap:12}}><span style={{fontSize:22}}>{typeIcon(doc.type)}</span><div><div style={{fontSize:13,fontWeight:500}}>{doc.name}</div><div style={{fontSize:11,color:T.dim}}>{fmtSize(doc.size)} · {doc.uploaded} · 📁 {doc.folder||"Generelt"}</div></div></div>
-        <div style={{display:"flex",gap:8,alignItems:"center"}}>{doc.url&&<a href={doc.url} target="_blank" rel="noopener" style={{fontSize:12,color:T.acc,textDecoration:"none",fontWeight:500}}>↓ Download</a>}<Btn small danger onClick={()=>del(doc)}>✕ Slet</Btn></div>
+        <div style={{display:"flex",gap:8,alignItems:"center"}}>{doc.url&&<a href={doc.url} target="_blank" rel="noopener" style={{fontSize:12,color:T.acc,textDecoration:"none",fontWeight:500}}>↓ Download</a>}<Btn small danger onClick={()=>del(doc)}>Slet</Btn></div>
       </div>
     </Card>)}
   </div>
@@ -1493,8 +1493,8 @@ function Team({supabase,user}){
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:16}}>
           <h2 style={{fontSize:22,fontWeight:700,lineHeight:1.3}}>{selected.title}</h2>
           <div style={{display:"flex",gap:8,flexShrink:0}}>
-            <Btn small onClick={startEdit}>✎ Rediger</Btn>
-            <Btn small danger onClick={deletePage}>✕ Slet</Btn>
+            <Btn small onClick={startEdit}>Rediger</Btn>
+            <Btn small danger onClick={deletePage}>Slet</Btn>
           </div>
         </div>
         <div style={{fontSize:14,lineHeight:1.8,color:T.mid,whiteSpace:"pre-wrap",minHeight:200}}>{selected.content||"(Tom side)"}</div>
@@ -1552,9 +1552,9 @@ function Settings({data,save}){
       <div style={{fontSize:13,color:T.dim,marginBottom:16}}>Klik for at slette data i en specifik sektion. Opskrifter, lager og priser bevares.</div>
       <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
         {[["productions","Produktioner",[]],["batches","Batches",[]],["customers","Kunder",[]],["orders","Ordrer",[]],["emails","Sendte mails",[]],["inbox","Indbakke",[]],["documents","Dokumenter",[]]].map(([key,label,empty])=>
-          <Btn key={key} small danger onClick={()=>clearSection(key,empty)}>✕ {label} ({(data[key]||[]).length})</Btn>)}
-        <Btn small danger onClick={()=>clearSection("haccp",{cleaning:[],temps:[],deviations:[],receiving:[],maintenance:[]})}>✕ HACCP logs</Btn>
-        <Btn small danger onClick={()=>clearSection("team",{pages:[],messages:[]})}>✕ Team</Btn>
+          <Btn key={key} small danger onClick={()=>clearSection(key,empty)}>Ryd {label} ({(data[key]||[]).length})</Btn>)}
+        <Btn small danger onClick={()=>clearSection("haccp",{cleaning:[],temps:[],deviations:[],receiving:[],maintenance:[]})}>Ryd HACCP logs</Btn>
+        <Btn small danger onClick={()=>clearSection("team",{pages:[],messages:[]})}>Ryd Team</Btn>
       </div>
     </Card>
     <Card style={{marginBottom:18,borderColor:T.red}}>
