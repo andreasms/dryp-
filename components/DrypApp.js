@@ -60,7 +60,7 @@ export default function DrypApp({data,update,save,user,onLogout,supabase,saveErr
   // SQL-derived stock levels for raw materials
   const[rawStock,setRawStock]=useState({})
   const rmIds=(data.inventory||[]).filter(i=>i.cat==="Råvare"||i.cat==="Emballage").map(i=>i.id).join(",")
-  useEffect(()=>{
+  const refreshStock=()=>{
     if(!supabase||!rmIds){setRawStock({});return}
     const ids=(data.inventory||[]).filter(i=>i.cat==="Råvare"||i.cat==="Emballage").map(i=>i.id)
     supabase.from("stock_levels").select("item_id,current_qty").in("item_id",ids)
@@ -70,7 +70,8 @@ export default function DrypApp({data,update,save,user,onLogout,supabase,saveErr
         rows.forEach(r=>{const prev=m[r.item_id];if(!prev)m[r.item_id]={qty:r.current_qty||0};else prev.qty+=(r.current_qty||0)})
         setRawStock(m)
       }).catch(()=>{})
-  },[supabase,rmIds])
+  }
+  useEffect(()=>{refreshStock()},[supabase,rmIds])
 
   const nav=[
     {id:"_hd",l:"PRODUKTION",hd:true},
@@ -120,7 +121,7 @@ export default function DrypApp({data,update,save,user,onLogout,supabase,saveErr
         <div style={{flex:1}}/>
         <div style={{fontSize:11,color:T.dim,fontFamily:T.fm}}>{new Date().toLocaleDateString("da-DK",{weekday:"long",day:"numeric",month:"long"})}</div>
       </header>
-      <main style={{flex:1,overflow:"auto",padding:22}} className="fade-in" key={page}><Pg data={data} update={update} save={save} user={user} supabase={supabase} setPage={setPage} batchNav={batchNav} setBatchNav={setBatchNav} rawStock={rawStock}/></main>
+      <main style={{flex:1,overflow:"auto",padding:22}} className="fade-in" key={page}><Pg data={data} update={update} save={save} user={user} supabase={supabase} setPage={setPage} batchNav={batchNav} setBatchNav={setBatchNav} rawStock={rawStock} refreshStock={refreshStock}/></main>
     </div>
   </div>
 }
@@ -331,7 +332,7 @@ function Production({data,update,supabase,setPage,setBatchNav}){
 }
 
 // ═══ BATCHES with GS1 ═══
-function Batches({data,update,supabase,batchNav,setBatchNav}){
+function Batches({data,update,supabase,batchNav,setBatchNav,refreshStock}){
   const[show,setShow]=useState(false);const[form,setForm]=useState({})
   const[showGs1,setShowGs1]=useState(false)
   const[sqlBatches,setSqlBatches]=useState(null)
@@ -400,7 +401,7 @@ function Batches({data,update,supabase,batchNav,setBatchNav}){
       await updateBatchStatus(supabase,selectedId,"completed",{completed_at:new Date().toISOString(),actual_qty:qty,process_loss_qty:loss||null,loss_notes:lossNotes.trim()||null})
       // 3. Event is non-critical — log failure but don't block
       try{await appendEvent(supabase,{batch_id:selectedId,user_id:u.id,event_type:"completed",payload:{actual_qty:qty,process_loss_qty:loss,unit:"stk"},created_by:u.email||u.id})}catch(evErr){console.error("[DRYP] batch event failed (non-critical):",evErr)}
-      refresh();setSelectedId(null)
+      refresh();if(refreshStock)refreshStock();setSelectedId(null)
     }catch(err){
       console.error("[DRYP] tryComplete failed:",err)
       setCompletionErr("Afslutning fejlede: "+(err.message||"Ukendt fejl")+". Batchen er IKKE afsluttet — prøv igen.")
@@ -427,6 +428,7 @@ function Batches({data,update,supabase,batchNav,setBatchNav}){
       await recordMovement(supabase,{user_id:user.id,item_id:lot.item_id,lot_id:lot.id,batch_id:selectedId,movement_type:"consumption",qty:-qty,unit:lot.unit,reference:selectedId,created_by:user.email})
       const[usage,lots]=await Promise.all([getBatchLotUsage(supabase,selectedId),getActiveLots(supabase)])
       setLotUsage(usage);setActiveLots(lots);setNewLot({lotId:"",qtyUsed:""})
+      if(refreshStock)refreshStock()
     }catch(err){console.error("[DRYP] addLotUsage failed:",err)}
     finally{setSavingLot(false)}
   }
@@ -902,7 +904,7 @@ function HACCPLogs({data,update,supabase,user}){
 }
 
 // ═══ INVENTORY, PLANNING, CUSTOMERS, ECONOMY — kept from v2 with bigger fonts ═══
-function Inventory({data,update,supabase,rawStock={}}){
+function Inventory({data,update,supabase,rawStock={},refreshStock}){
   const[show,setShow]=useState(false);const[form,setForm]=useState({});const[eId,setEId]=useState(null);const[qv,setQv]=useState("")
   const[showLot,setShowLot]=useState(false);const[lotForm,setLotForm]=useState({});const[savingLot,setSavingLot]=useState(false)
   const[activeLots,setActiveLots]=useState([])
@@ -956,7 +958,7 @@ function Inventory({data,update,supabase,rawStock={}}){
         reference:lotForm.lot_number,
         notes:"Lot modtaget",
       })
-      setShowLot(false);setLotForm({});loadLots()
+      setShowLot(false);setLotForm({});loadLots();if(refreshStock)refreshStock()
     }catch(err){console.error("[DRYP] createLot failed:",err);alert("Fejl ved oprettelse af lot: "+err.message)}
     setSavingLot(false)
   }
