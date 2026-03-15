@@ -343,6 +343,8 @@ function Batches({data,update,supabase,batchNav,setBatchNav}){
   const[savingLot,setSavingLot]=useState(false)
   const[actualQty,setActualQty]=useState("")
   const[qtyStatus,setQtyStatus]=useState("")
+  const[processLoss,setProcessLoss]=useState("")
+  const[lossNotes,setLossNotes]=useState("")
   const[showLotModal,setShowLotModal]=useState(false)
   const[lotItemId,setLotItemId]=useState("")
   const[completionErr,setCompletionErr]=useState("")
@@ -359,7 +361,10 @@ function Batches({data,update,supabase,batchNav,setBatchNav}){
 
   useEffect(()=>{
     if(!supabase||!selectedId)return
-    setActualQty(sqlBatches?.find(b=>b.id===selectedId)?.actual_qty??'')
+    const sel=sqlBatches?.find(b=>b.id===selectedId)
+    setActualQty(sel?.actual_qty??'')
+    setProcessLoss(sel?.process_loss_qty??'')
+    setLossNotes(sel?.loss_notes??'')
     getActiveLots(supabase).then(setActiveLots).catch(()=>{})
     getBatchLotUsage(supabase,selectedId).then(setLotUsage).catch(()=>{})
   },[supabase,selectedId])
@@ -383,16 +388,18 @@ function Batches({data,update,supabase,batchNav,setBatchNav}){
     const missingItems=rawItems.filter(b=>!lotUsage.some(lu=>lu.item_id===b.itemId))
     if(missingItems.length>0){const names=missingItems.map(b=>{const inv=data.inventory.find(i=>i.id===b.itemId);return inv?.name||b.itemId}).join(", ");setCompletionErr(`Registrér råvareforbrug for: ${names}`);return}
     const qty=parseInt(actualQty)||selected?.actual_qty
-    if(!qty){setCompletionErr("Angiv faktisk produceret antal før afslutning");return}
+    if(!qty){setCompletionErr("Angiv faktisk output før afslutning");return}
+    const loss=parseFloat(processLoss)||0
+    if(loss<0){setCompletionErr("Proces-spild kan ikke være negativt");return}
     setActing(true)
     try{
-      // 1. Record produce movement BEFORE marking batch completed
+      // 1. Record produce movement BEFORE marking batch completed — only saleable output
       const{data:{user:u}}=await supabase.auth.getUser()
-      await recordMovement(supabase,{user_id:u.id,item_id:selected.recipe_id,batch_id:selectedId,movement_type:"produce",qty,unit:"stk",reference:selected.batch_number,notes:"Batch afsluttet"})
-      // 2. Now safe to mark completed
-      await updateBatchStatus(supabase,selectedId,"completed",{completed_at:new Date().toISOString(),actual_qty:qty})
+      await recordMovement(supabase,{user_id:u.id,item_id:selected.recipe_id,batch_id:selectedId,movement_type:"produce",qty,unit:"stk",reference:selected.batch_number,notes:loss>0?`Batch afsluttet (spild: ${loss})`:"Batch afsluttet"})
+      // 2. Now safe to mark completed — include process loss fields
+      await updateBatchStatus(supabase,selectedId,"completed",{completed_at:new Date().toISOString(),actual_qty:qty,process_loss_qty:loss||null,loss_notes:lossNotes.trim()||null})
       // 3. Event is non-critical — log failure but don't block
-      try{await appendEvent(supabase,{batch_id:selectedId,user_id:u.id,event_type:"completed",payload:{actual_qty:qty,unit:"stk"},created_by:u.email||u.id})}catch(evErr){console.error("[DRYP] batch event failed (non-critical):",evErr)}
+      try{await appendEvent(supabase,{batch_id:selectedId,user_id:u.id,event_type:"completed",payload:{actual_qty:qty,process_loss_qty:loss,unit:"stk"},created_by:u.email||u.id})}catch(evErr){console.error("[DRYP] batch event failed (non-critical):",evErr)}
       refresh();setSelectedId(null)
     }catch(err){
       console.error("[DRYP] tryComplete failed:",err)
@@ -494,6 +501,7 @@ function Batches({data,update,supabase,batchNav,setBatchNav}){
         </div>
         if(s==="completed")return<div style={nsStyle(T.ok)}>
           <div style={{fontSize:13,color:T.ok,fontWeight:500}}>✓ Batch er afsluttet{selected.completed_at&&<span style={{color:T.dim,fontWeight:400,marginLeft:8,fontSize:11}}>{selected.completed_at.slice(0,10)}</span>}</div>
+          <div style={{fontSize:12,color:T.mid,marginTop:6}}>Output: {selected.actual_qty||"—"} stk{selected.process_loss_qty>0&&<span style={{color:T.warn,marginLeft:10}}>Spild: {selected.process_loss_qty} stk</span>}{selected.loss_notes&&<span style={{color:T.dim,marginLeft:10}}>({selected.loss_notes})</span>}</div>
         </div>
         return null
       })()}
@@ -504,15 +512,41 @@ function Batches({data,update,supabase,batchNav,setBatchNav}){
       <div style={{borderTop:`1px solid ${T.brdL}`,paddingTop:16,marginBottom:22}}>
         <div style={{fontSize:10,fontWeight:700,color:T.dim,textTransform:"uppercase",letterSpacing:".1em",marginBottom:14}}>2 · Produktion</div>
 
-        <div style={{display:"flex",alignItems:"center",gap:10}}>
+        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
           <div style={{display:"flex",alignItems:"center"}}>
-            <div style={{fontSize:11,fontWeight:600,color:T.mid}}>Faktisk produceret</div>
-            <Tip text="Angiv det faktiske antal færdigproducerede enheder. Gemmes automatisk når du forlader feltet. Udfyldes inden du afslutter batchen."/>
+            <div style={{fontSize:11,fontWeight:600,color:T.mid}}>Faktisk output</div>
+            <Tip text="Antal salgbare færdigvarer. Kun dette antal tilføjes lageret. Udfyldes inden du afslutter batchen."/>
           </div>
           <input type="number" min="0" value={actualQty} onChange={e=>setActualQty(e.target.value)} onBlur={e=>saveActualQty(e.target.value)} placeholder="antal" style={{width:90}} disabled={selected.status==="completed"}/>
           <span style={{fontSize:12,color:T.dim}}>stk</span>
           {qtyStatus&&<span style={{fontSize:11,color:qtyStatus==="Fejl"?T.red:qtyStatus==="Gemmer..."?T.dim:T.ok,marginLeft:4,fontWeight:500}}>{qtyStatus}</span>}
         </div>
+
+        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:8}}>
+          <div style={{display:"flex",alignItems:"center"}}>
+            <div style={{fontSize:11,fontWeight:600,color:T.mid}}>Proces-spild</div>
+            <Tip text="Antal enheder tabt i produktion — f.eks. flasker der ikke kunne fyldes pga. rest i udstyr, spild ved aftapning, kasserede enheder. Angives i samme enhed som output (stk)."/>
+          </div>
+          <input type="number" min="0" value={processLoss} onChange={e=>setProcessLoss(e.target.value)} placeholder="0" style={{width:90}} disabled={selected.status==="completed"}/>
+          <span style={{fontSize:12,color:T.dim}}>stk</span>
+        </div>
+
+        {selected.status!=="completed"&&(parseFloat(processLoss)||0)>0&&<div style={{marginBottom:8}}>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <div style={{fontSize:11,fontWeight:600,color:T.mid}}>Note om spild</div>
+          </div>
+          <input value={lossNotes} onChange={e=>setLossNotes(e.target.value)} placeholder="f.eks. spild ved aftapning, kasserede flasker" style={{width:"100%",maxWidth:400,marginTop:4}} disabled={selected.status==="completed"}/>
+        </div>}
+
+        {(()=>{
+          const out=parseInt(actualQty)||0;const loss=parseFloat(processLoss)||0;const planned=selected.planned_qty||0
+          if(selected.status==="completed"||!planned||!out)return null
+          const total=out+loss;const diff=Math.abs(total-planned)/planned
+          if(diff<=0.2)return null
+          return<div style={{background:`${T.warn}15`,border:`1px solid ${T.warn}44`,borderRadius:8,padding:"8px 12px",fontSize:12,color:T.warn,marginTop:4}}>
+            ⚠ Output ({out} stk) + spild ({loss} stk) = {total} stk — afviger mere end 20% fra planlagt ({planned} stk). Tjek at tallene stemmer.
+          </div>
+        })()}
       </div>
 
       {/* ─── 3. SPORBARHED — per BOM item ─── */}

@@ -142,6 +142,8 @@ create table if not exists batches (
                                check (status in ('planned','in_progress','completed','failed','recalled')),
   planned_qty      integer,
   actual_qty       integer,
+  process_loss_qty numeric,
+  loss_notes       text,
   planned_date     date,
   started_at       timestamptz,
   completed_at     timestamptz,
