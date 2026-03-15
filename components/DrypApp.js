@@ -368,12 +368,20 @@ function Batches({data,update,supabase,batchNav,setBatchNav}){
     if(missingItems.length>0){const names=missingItems.map(b=>{const inv=data.inventory.find(i=>i.id===b.itemId);return inv?.name||b.itemId}).join(", ");setCompletionErr(`Registrér råvareforbrug for: ${names}`);return}
     const qty=parseInt(actualQty)||selected?.actual_qty
     if(!qty){setCompletionErr("Angiv faktisk produceret antal før afslutning");return}
-    await doAction("completed",{completed_at:new Date().toISOString(),actual_qty:qty})
+    setActing(true)
     try{
+      // 1. Record produce movement BEFORE marking batch completed
       const{data:{user:u}}=await supabase.auth.getUser()
       await recordMovement(supabase,{user_id:u.id,item_id:selected.recipe_id,batch_id:selectedId,movement_type:"produce",qty,unit:"stk",reference:selected.batch_number,notes:"Batch afsluttet"})
-      await appendEvent(supabase,{batch_id:selectedId,user_id:u.id,event_type:"completed",payload:{actual_qty:qty,unit:"stk"},created_by:u.email||u.id})
-    }catch(err){console.error("[DRYP] batch completion side-effects failed:",err)}
+      // 2. Now safe to mark completed
+      await updateBatchStatus(supabase,selectedId,"completed",{completed_at:new Date().toISOString(),actual_qty:qty})
+      // 3. Event is non-critical — log failure but don't block
+      try{await appendEvent(supabase,{batch_id:selectedId,user_id:u.id,event_type:"completed",payload:{actual_qty:qty,unit:"stk"},created_by:u.email||u.id})}catch(evErr){console.error("[DRYP] batch event failed (non-critical):",evErr)}
+      refresh();setSelectedId(null)
+    }catch(err){
+      console.error("[DRYP] tryComplete failed:",err)
+      setCompletionErr("Afslutning fejlede: "+(err.message||"Ukendt fejl")+". Batchen er IKKE afsluttet — prøv igen.")
+    }finally{setActing(false)}
   }
 
   const saveActualQty=async(val)=>{

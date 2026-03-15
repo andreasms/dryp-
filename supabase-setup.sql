@@ -535,3 +535,37 @@ alter table team_messages enable row level security;
 
 create policy "Team can view messages" on team_messages for select using (is_team_member());
 create policy "Team can insert messages" on team_messages for insert with check (is_team_member());
+
+
+-- ─── ATOMIC LOT DECREMENT ───
+-- Atomically decrements qty_remaining on a lot.
+-- Fails if insufficient stock. Called via supabase.rpc('decrement_lot_qty', ...).
+create or replace function decrement_lot_qty(p_lot_id uuid, p_qty numeric)
+returns numeric as $$
+declare
+  v_remaining numeric;
+begin
+  if p_qty is null or p_qty <= 0 then
+    raise exception 'Ugyldigt antal: skal være større end 0';
+  end if;
+
+  update lots
+    set qty_remaining = qty_remaining - p_qty
+    where id = p_lot_id
+      and qty_remaining >= p_qty
+  returning qty_remaining into v_remaining;
+
+  if not found then
+    -- Fetch actual remaining for the error message
+    select qty_remaining into v_remaining from lots where id = p_lot_id;
+    if v_remaining is null then
+      raise exception 'Lot ikke fundet: %', p_lot_id;
+    else
+      raise exception 'Ikke nok lagerbeholdning: % tilgængelig, % efterspurgt',
+        v_remaining, p_qty;
+    end if;
+  end if;
+
+  return v_remaining;
+end;
+$$ language plpgsql security definer set search_path = public;
