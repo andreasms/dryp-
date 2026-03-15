@@ -934,13 +934,16 @@ function Economy({data,save}){
   const costRaw=(rid)=>{const r=(data.recipes||[]).find(x=>x.id===rid);if(!r)return 0;return(r.bom||[]).filter(b=>{const inv=data.inventory.find(x=>x.id===b.itemId);return inv?.cat==="Råvare"}).reduce((s,b)=>{const inv=data.inventory.find(x=>x.id===b.itemId);return s+(inv?.costPer||0)*b.qty},0)}
   const costPack=(rid)=>{const r=(data.recipes||[]).find(x=>x.id===rid);if(!r)return 0;return(r.bom||[]).filter(b=>{const inv=data.inventory.find(x=>x.id===b.itemId);return inv?.cat!=="Råvare"}).reduce((s,b)=>{const inv=data.inventory.find(x=>x.id===b.itemId);return s+(inv?.costPer||0)*b.qty},0)}
 
-  // Wholesale price lookup — best-effort mapping from recipe id to data.prices fields.
-  // Currently data.prices has wholesale250/wholesale500. We infer by size substring.
-  // When new products are added, extend this mapping or add per-recipe price fields.
+  // Wholesale price lookup — two-tier:
+  // 1) data.prices.byRecipe[recipeId]?.wholesale (future-proof per-recipe mapping)
+  // 2) Legacy fallback for exact dild-250/dild-500 only
+  // Returns null if no price found so UI can show "mangler pris"
   const getWholesalePrice=(rid)=>{
-    if(rid.includes("250"))return p.wholesale250||0
-    if(rid.includes("500"))return p.wholesale500||0
-    return 0
+    const byR=p.byRecipe?.[rid]
+    if(byR?.wholesale!=null)return byR.wholesale
+    if(rid==="dild-250"&&p.wholesale250!=null)return p.wholesale250
+    if(rid==="dild-500"&&p.wholesale500!=null)return p.wholesale500
+    return null
   }
 
   // Revenue: current and previous month
@@ -984,17 +987,18 @@ function Economy({data,save}){
     {recipes.map(r=>{
       const raw=costRaw(r.id);const pack=costPack(r.id)
       const wholesale=getWholesalePrice(r.id)
+      const hasPrice=wholesale!=null
       const ohPerUnit=overheadPerBottle||0
       const totalCost=raw+pack+ohPerUnit
-      const db=wholesale-totalCost
-      const dbPct=wholesale>0?Math.round(db/wholesale*100):0
-      // Stacked bar segments: proportional to wholesale (or totalCost if no wholesale)
-      const barMax=Math.max(wholesale,totalCost,1)
-      const rawW=raw/barMax*100;const packW=pack/barMax*100;const ohW=ohPerUnit/barMax*100;const profitW=db>0?db/barMax*100:0
+      const db=hasPrice?wholesale-totalCost:null
+      const dbPct=hasPrice&&wholesale>0?Math.round(db/wholesale*100):null
+      // Stacked bar segments: proportional to wholesale (or totalCost if no price)
+      const barMax=Math.max(hasPrice?wholesale:0,totalCost,1)
+      const rawW=raw/barMax*100;const packW=pack/barMax*100;const ohW=ohPerUnit/barMax*100;const profitW=db!=null&&db>0?db/barMax*100:0
       return<Card key={r.id} style={{marginBottom:10,padding:16}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:10}}>
           <div><span style={{fontSize:14,fontWeight:600}}>{r.name}</span><span style={{fontSize:11,color:T.dim,marginLeft:8}}>{r.id}</span></div>
-          <div style={{fontSize:13,fontFamily:T.fm,color:T.mid}}>Engros: {wholesale>0?`${wholesale} kr`:<span style={{color:T.warn}}>mangler pris</span>}</div>
+          <div style={{fontSize:13,fontFamily:T.fm,color:T.mid}}>Engros: {hasPrice?`${wholesale} kr`:<span style={{color:T.warn}}>mangler pris</span>}</div>
         </div>
 
         {/* Stacked cost bar */}
@@ -1011,7 +1015,7 @@ function Economy({data,save}){
           <span style={{color:"#b8a44e",fontFamily:T.fm}}>Emb: {pack.toFixed(1)}</span>
           {ohPerUnit>0&&<span style={{color:"#8a7a5a",fontFamily:T.fm}}>OH: {ohPerUnit.toFixed(1)}</span>}
           <span style={{color:T.warn,fontFamily:T.fm,fontWeight:600}}>Kostpris: {totalCost.toFixed(1)} kr</span>
-          {wholesale>0&&<span style={{color:db>=0?T.ok:T.red,fontFamily:T.fm,fontWeight:600}}>DB: {db.toFixed(0)} kr ({dbPct}%)</span>}
+          {db!=null&&<span style={{color:db>=0?T.ok:T.red,fontFamily:T.fm,fontWeight:600}}>DB: {db.toFixed(0)} kr {dbPct!=null&&`(${dbPct}%)`}</span>}
         </div>
       </Card>
     })}
