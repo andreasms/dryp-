@@ -970,7 +970,7 @@ function Inventory({data,update,supabase,rawStock={},refreshStock}){
     {cats.map(cat=><div key={cat} style={{marginBottom:22}}><div style={{fontSize:11,fontWeight:700,color:T.dim,letterSpacing:".1em",textTransform:"uppercase",marginBottom:10,paddingBottom:4,borderBottom:`1px solid ${T.brdL}`,display:"flex",alignItems:"center",justifyContent:"space-between"}}><span>{cat}</span>{cat==="Råvare"&&<span style={{fontSize:10,color:T.acc,fontWeight:500,letterSpacing:".02em",textTransform:"none"}}>Opret lots for at spore råvareforbrug i produktion</span>}</div>
       {data.inventory.filter(i=>i.cat===cat).map(item=>{const sq=getStock(item,rawStock);const hasSql=item.cat==="Råvare"&&rawStock[item.id]!=null;const low=sq<item.min;return<Card key={item.id} style={{marginBottom:6,padding:12}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><div><div style={{fontSize:14,fontWeight:500}}>{low&&<span style={{color:T.red}}>⚠ </span>}{item.name}</div><div style={{fontSize:12,color:T.dim}}>Min: {item.min} · Lead: {item.leadDays}d{item.supplier&&` · ${item.supplier}`} · {fk(item.costPer)}/{item.unit}{hasSql&&<span style={{color:T.acc,marginLeft:6}} title="Beregnet fra lot-bevægelser">· lot-baseret</span>}</div></div>
-          <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+          <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",flexShrink:0}}>
             <div style={{display:"flex",alignItems:"baseline",gap:4,minWidth:70}}>
               <span style={{fontSize:20,fontFamily:T.fm,fontWeight:700,color:low?T.red:T.txt}}>{sq}</span>
               <span style={{fontSize:12,color:T.dim}}>{item.unit}</span>
