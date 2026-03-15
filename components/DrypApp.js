@@ -40,7 +40,7 @@ const Badge=({children,c=T.acc,bg})=><span style={{display:"inline-flex",fontSiz
 const Btn=({children,primary,danger,small,disabled,style,...p})=><button {...p} style={{display:"inline-flex",alignItems:"center",gap:6,padding:small?"5px 12px":"8px 16px",minHeight:small?32:undefined,borderRadius:8,fontSize:small?12:13,fontWeight:600,background:danger?T.red:primary?T.acc:small?T.card2:"transparent",color:danger?"#fff":primary?T.bg:T.txt,border:primary||danger?"none":`1px solid ${T.brd}`,opacity:disabled?.4:1,cursor:disabled?"not-allowed":"pointer",transition:"all .15s",...style}} disabled={disabled}/>
 const Card=({children,style,onClick})=><div onClick={onClick} style={{background:T.card,border:`1px solid ${T.brdL}`,borderRadius:12,padding:18,cursor:onClick?"pointer":"default",...style}}>{children}</div>
 const Field=({label,children,tip})=><div style={{marginBottom:14}}><label style={{display:"flex",alignItems:"center",fontSize:11,fontWeight:600,color:T.mid,letterSpacing:".05em",textTransform:"uppercase",marginBottom:5}}>{label}{tip&&<Tip text={tip}/>}</label>{children}</div>
-const Modal=({title,onClose,children,wide})=><div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.75)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1e3,padding:20}} onClick={onClose}><div className="fade-in" onClick={e=>e.stopPropagation()} style={{background:T.card,border:`1px solid ${T.brd}`,borderRadius:16,width:"100%",maxWidth:wide?760:480,maxHeight:"88vh",overflow:"auto",padding:28}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:22}}><h3 style={{fontSize:18,fontWeight:700}}>{title}</h3><button onClick={onClose} style={{background:"none",color:T.dim,fontSize:18,cursor:"pointer",padding:4}}>✕</button></div>{children}</div></div>
+const Modal=({title,onClose,children,wide})=><div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.75)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1e3,padding:20}} onClick={onClose}><div className="fade-in" onClick={e=>e.stopPropagation()} style={{background:T.card,border:`1px solid ${T.brd}`,borderRadius:16,width:"100%",maxWidth:wide?760:480,maxHeight:"88vh",overflow:"auto",padding:28}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:22}}><h3 style={{fontSize:18,fontWeight:700}}>{title}</h3><button onClick={onClose} aria-label="Luk" title="Luk" style={{background:"none",color:T.dim,fontSize:18,cursor:"pointer",padding:4}}>✕</button></div>{children}</div></div>
 const Stat=({label,value,sub,c=T.acc,tip})=><Card style={{flex:"1 1 140px",minWidth:140}}><div style={{display:"flex",alignItems:"center",fontSize:11,color:T.dim,letterSpacing:".06em",textTransform:"uppercase",marginBottom:8}}>{label}{tip&&<Tip text={tip}/>}</div><div style={{fontSize:24,fontWeight:700,color:c,lineHeight:1,fontFamily:T.fm}}>{value}</div>{sub&&<div style={{fontSize:12,color:T.mid,marginTop:6}}>{sub}</div>}</Card>
 const Empty=({text,action,onAction})=><div style={{textAlign:"center",padding:60,color:T.dim}}><div style={{fontSize:14,marginBottom:16}}>{text}</div>{action&&<Btn primary onClick={onAction}><Plus s={12} c={T.bg}/> {action}</Btn>}</div>
 const Dot=({s})=><span style={{display:"inline-block",width:8,height:8,borderRadius:"50%",background:s==="ok"?T.ok:s==="warn"?T.warn:T.red,boxShadow:`0 0 6px ${s==="ok"?T.ok:s==="warn"?T.warn:T.red}44`}}/>
@@ -83,7 +83,7 @@ export default function DrypApp({data,update,save,user,onLogout,supabase,saveErr
   return<div style={{display:"flex",height:"100vh",overflow:"hidden",fontSize:T.fs,color:T.txt}}>
     {saveError&&<div style={{position:"fixed",top:0,left:0,right:0,zIndex:9999,background:"#5c1a1a",borderBottom:"2px solid #a33",padding:"10px 20px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:12}} onClick={onDismissSaveError}>
       <div><div style={{color:"#fdd",fontSize:13,fontWeight:600}}>Ændringen blev ikke gemt</div><div style={{color:"#c99",fontSize:11,marginTop:2}}>{saveError}</div></div>
-      <button style={{color:"#c99",fontSize:16,cursor:"pointer",background:"none",padding:"4px 8px"}}>✕</button>
+      <button aria-label="Luk" title="Luk" style={{color:"#c99",fontSize:16,cursor:"pointer",background:"none",padding:"4px 8px"}}>✕</button>
     </div>}
     <div style={{width:sb?220:0,minWidth:sb?220:0,background:T.card,borderRight:`1px solid ${T.brdL}`,display:"flex",flexDirection:"column",transition:"width .25s ease, min-width .25s ease",overflow:"hidden",position:isMobile?"fixed":"relative",zIndex:100,height:"100%"}}>
       <div style={{padding:"20px 16px 8px"}}><div style={{fontFamily:"'Archivo Black',sans-serif",fontSize:20,color:T.acc,letterSpacing:".12em"}}>DRYP</div><div style={{fontSize:9,color:T.dim,letterSpacing:".15em",textTransform:"uppercase",marginTop:2}}>Skagen · DK</div></div>
@@ -93,13 +93,13 @@ export default function DrypApp({data,update,save,user,onLogout,supabase,saveErr
       </nav>
       <div style={{padding:"12px 16px",borderTop:`1px solid ${T.brdL}`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
         <div style={{display:"flex",alignItems:"center",gap:8}}><div style={{width:28,height:28,borderRadius:"50%",background:T.accD,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,color:T.acc}}>{userName.charAt(0).toUpperCase()}</div><div style={{fontSize:12}}>{userName}</div></div>
-        <button onClick={onLogout} style={{background:"none",color:T.dim,fontSize:10,cursor:"pointer"}}>Log ud</button>
+        <button onClick={onLogout} style={{background:T.card2,color:T.dim,fontSize:10,cursor:"pointer",padding:"4px 10px",borderRadius:6,border:`1px solid ${T.brdL}`}}>Log ud</button>
       </div>
     </div>
     {sb&&isMobile&&<div onClick={()=>setSb(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.5)",zIndex:99}}/>}
     <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden",background:T.bg}}>
       <header style={{display:"flex",alignItems:"center",gap:12,padding:"12px 20px",borderBottom:`1px solid ${T.brdL}`,background:T.card,flexShrink:0}}>
-        {!sb&&<button onClick={()=>setSb(true)} style={{background:"none",color:T.mid,fontSize:18,cursor:"pointer"}}>☰</button>}
+        {!sb&&<button onClick={()=>setSb(true)} aria-label="Menu" title="Menu" style={{background:"none",color:T.mid,fontSize:18,cursor:"pointer"}}>☰</button>}
         <h1 style={{fontSize:16,fontWeight:600}}>{nav.find(n=>n.id===page)?.l}</h1>
         <div style={{flex:1}}/>
         <div style={{fontSize:11,color:T.dim,fontFamily:T.fm}}>{new Date().toLocaleDateString("da-DK",{weekday:"long",day:"numeric",month:"long"})}</div>
@@ -762,10 +762,10 @@ function HACCPLogs({data,update,supabase,user}){
 
     {/* Week navigator for history */}
     {isHistory&&<div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16}}>
-      <button onClick={()=>setWeekOffset(w=>w-1)} style={{background:"none",color:T.acc,fontSize:16,cursor:"pointer",padding:"4px 8px"}}>←</button>
+      <button onClick={()=>setWeekOffset(w=>w-1)} aria-label="Forrige uge" title="Forrige uge" style={{background:"none",color:T.acc,fontSize:16,cursor:"pointer",padding:"4px 8px"}}>←</button>
       <div style={{fontSize:13,fontWeight:600}}>Uge {weekNum(getMonday(weekOffset))} · {getMonday(weekOffset)} — {getSunday(weekOffset)}</div>
-      <button onClick={()=>setWeekOffset(w=>Math.min(w+1,0))} disabled={weekOffset>=0} style={{background:"none",color:weekOffset>=0?T.dim:T.acc,fontSize:16,cursor:weekOffset>=0?"not-allowed":"pointer",padding:"4px 8px"}}>→</button>
-      {weekOffset<0&&<button onClick={()=>setWeekOffset(0)} style={{background:"none",color:T.acc,fontSize:11,cursor:"pointer",fontWeight:600}}>Gå til nu</button>}
+      <button onClick={()=>setWeekOffset(w=>Math.min(w+1,0))} disabled={weekOffset>=0} aria-label="Næste uge" title="Næste uge" style={{background:"none",color:weekOffset>=0?T.dim:T.acc,fontSize:16,cursor:weekOffset>=0?"not-allowed":"pointer",padding:"4px 8px"}}>→</button>
+      {weekOffset<0&&<button onClick={()=>setWeekOffset(0)} style={{background:T.accDD,color:T.acc,fontSize:11,cursor:"pointer",fontWeight:600,padding:"3px 10px",borderRadius:6,border:`1px solid ${T.acc}44`}}>Gå til nu</button>}
     </div>}
 
     {/* Tabs — shown for today and week views */}
