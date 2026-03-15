@@ -37,7 +37,7 @@ const Tip=({text})=>{
 }
 
 const Badge=({children,c=T.acc,bg})=><span style={{display:"inline-flex",fontSize:11,fontWeight:600,letterSpacing:".03em",textTransform:"uppercase",color:c,background:bg||`${c}44`,padding:"3px 10px",borderRadius:99,whiteSpace:"nowrap",border:`1px solid ${c}55`}}>{children}</span>
-const Btn=({children,primary,danger,small,disabled,style,...p})=><button {...p} style={{display:"inline-flex",alignItems:"center",gap:6,padding:small?"5px 12px":"8px 16px",borderRadius:8,fontSize:small?12:13,fontWeight:600,background:danger?T.red:primary?T.acc:small?T.card2:"transparent",color:danger?"#fff":primary?T.bg:T.txt,border:primary||danger?"none":`1px solid ${T.brd}`,opacity:disabled?.4:1,cursor:disabled?"not-allowed":"pointer",transition:"all .15s",...style}} disabled={disabled}/>
+const Btn=({children,primary,danger,small,disabled,style,...p})=><button {...p} style={{display:"inline-flex",alignItems:"center",gap:6,padding:small?"5px 12px":"8px 16px",minHeight:small?32:undefined,borderRadius:8,fontSize:small?12:13,fontWeight:600,background:danger?T.red:primary?T.acc:small?T.card2:"transparent",color:danger?"#fff":primary?T.bg:T.txt,border:primary||danger?"none":`1px solid ${T.brd}`,opacity:disabled?.4:1,cursor:disabled?"not-allowed":"pointer",transition:"all .15s",...style}} disabled={disabled}/>
 const Card=({children,style,onClick})=><div onClick={onClick} style={{background:T.card,border:`1px solid ${T.brdL}`,borderRadius:12,padding:18,cursor:onClick?"pointer":"default",...style}}>{children}</div>
 const Field=({label,children,tip})=><div style={{marginBottom:14}}><label style={{display:"flex",alignItems:"center",fontSize:11,fontWeight:600,color:T.mid,letterSpacing:".05em",textTransform:"uppercase",marginBottom:5}}>{label}{tip&&<Tip text={tip}/>}</label>{children}</div>
 const Modal=({title,onClose,children,wide})=><div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.75)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1e3,padding:20}} onClick={onClose}><div className="fade-in" onClick={e=>e.stopPropagation()} style={{background:T.card,border:`1px solid ${T.brd}`,borderRadius:16,width:"100%",maxWidth:wide?760:480,maxHeight:"88vh",overflow:"auto",padding:28}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:22}}><h3 style={{fontSize:18,fontWeight:700}}>{title}</h3><button onClick={onClose} style={{background:"none",color:T.dim,fontSize:18,cursor:"pointer",padding:4}}>✕</button></div>{children}</div></div>
@@ -237,7 +237,7 @@ function Recipes({data,update}){
           <select value={b.itemId} onChange={e=>{const bom=[...form.rawBom];bom[i]={...bom[i],itemId:e.target.value,unit:data.inventory.find(x=>x.id===e.target.value)?.unit||"L"};setForm({...form,rawBom:bom})}} style={{flex:2}}>{rawItems.map(inv=><option key={inv.id} value={inv.id}>{inv.name}</option>)}<option value="">— Tilføj ny i Lager —</option></select>
           <input type="number" step=".01" value={b.qty} onChange={e=>{const bom=[...form.rawBom];bom[i]={...bom[i],qty:parseFloat(e.target.value)||0};setForm({...form,rawBom:bom})}} style={{flex:1}}/>
           <span style={{fontSize:11,color:T.dim,width:30}}>{b.unit}</span>
-          <button onClick={()=>setForm({...form,rawBom:form.rawBom.filter((_,j)=>j!==i)})} style={{background:"none",color:T.red,fontSize:16,cursor:"pointer"}}>✕</button>
+          <button onClick={()=>setForm({...form,rawBom:form.rawBom.filter((_,j)=>j!==i)})} style={{background:T.card2,color:T.red,fontSize:11,fontWeight:600,cursor:"pointer",padding:"4px 10px",borderRadius:6,border:`1px solid ${T.brd}`}}>✕ Fjern</button>
         </div>)}
       </div>
 
@@ -248,7 +248,7 @@ function Recipes({data,update}){
           <select value={b.itemId} onChange={e=>{const bom=[...form.packBom];bom[i]={...bom[i],itemId:e.target.value,unit:data.inventory.find(x=>x.id===e.target.value)?.unit||"stk"};setForm({...form,packBom:bom})}} style={{flex:2}}>{packItems.map(inv=><option key={inv.id} value={inv.id}>{inv.name}</option>)}</select>
           <input type="number" step=".01" value={b.qty} onChange={e=>{const bom=[...form.packBom];bom[i]={...bom[i],qty:parseFloat(e.target.value)||0};setForm({...form,packBom:bom})}} style={{flex:1}}/>
           <span style={{fontSize:11,color:T.dim,width:30}}>{b.unit}</span>
-          <button onClick={()=>setForm({...form,packBom:form.packBom.filter((_,j)=>j!==i)})} style={{background:"none",color:T.red,fontSize:16,cursor:"pointer"}}>✕</button>
+          <button onClick={()=>setForm({...form,packBom:form.packBom.filter((_,j)=>j!==i)})} style={{background:T.card2,color:T.red,fontSize:11,fontWeight:600,cursor:"pointer",padding:"4px 10px",borderRadius:6,border:`1px solid ${T.brd}`}}>✕ Fjern</button>
         </div>)}
       </div>
 
@@ -258,7 +258,7 @@ function Recipes({data,update}){
         {(form.steps||[]).map((s,i)=><div key={i} style={{display:"flex",gap:8,marginBottom:6,alignItems:"center"}}>
           <span style={{fontSize:11,color:T.dim,width:22,textAlign:"right"}}>{i+1}.</span>
           <input value={s} onChange={e=>{const steps=[...form.steps];steps[i]=e.target.value;setForm({...form,steps})}} style={{flex:1}}/>
-          <button onClick={()=>setForm({...form,steps:form.steps.filter((_,j)=>j!==i)})} style={{background:"none",color:T.red,fontSize:16,cursor:"pointer"}}>✕</button>
+          <button onClick={()=>setForm({...form,steps:form.steps.filter((_,j)=>j!==i)})} style={{background:T.card2,color:T.red,fontSize:11,fontWeight:600,cursor:"pointer",padding:"4px 10px",borderRadius:6,border:`1px solid ${T.brd}`}}>✕ Fjern</button>
         </div>)}
       </div>
       <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:16}}><Btn onClick={()=>setShow(false)}>Annuller</Btn><Btn primary onClick={doSave}>✓ Gem opskrift</Btn></div>
@@ -1245,7 +1245,7 @@ function Documents({data,update,supabase}){
       <button onClick={()=>setActiveFolder(null)} style={{padding:"6px 14px",borderRadius:20,fontSize:12,fontWeight:!activeFolder?600:400,background:!activeFolder?T.accD:"transparent",color:!activeFolder?T.acc:T.dim,border:`1px solid ${!activeFolder?T.acc+"44":T.brdL}`,cursor:"pointer"}}>Alle ({docs.length})</button>
       {folders.map(f=>{const count=docs.filter(d=>d.folder===f).length;return<button key={f} onClick={()=>setActiveFolder(f)} style={{padding:"6px 14px",borderRadius:20,fontSize:12,fontWeight:activeFolder===f?600:400,background:activeFolder===f?T.accD:"transparent",color:activeFolder===f?T.acc:T.dim,border:`1px solid ${activeFolder===f?T.acc+"44":T.brdL}`,cursor:"pointer"}}>📁 {f} ({count})</button>})}
       {newFolder?<div style={{display:"flex",gap:4}}><input value={folderName} onChange={e=>setFolderName(e.target.value)} placeholder="Mappenavn" style={{width:140,fontSize:12}} autoFocus onKeyDown={e=>e.key==="Enter"&&addFolder()}/><Btn small primary onClick={addFolder}>✓ Opret</Btn><Btn small onClick={()=>setNewFolder(false)}>Annuller</Btn></div>:
-      <button onClick={()=>setNewFolder(true)} style={{padding:"6px 14px",borderRadius:20,fontSize:12,color:T.dim,background:"transparent",border:`1px dashed ${T.brdL}`,cursor:"pointer",display:"flex",alignItems:"center",gap:4}}><Plus s={10} c={T.dim}/> Ny mappe</button>}
+      <button onClick={()=>setNewFolder(true)} style={{padding:"6px 14px",borderRadius:8,fontSize:12,fontWeight:600,color:T.mid,background:T.card2,border:`1px solid ${T.brd}`,cursor:"pointer",display:"flex",alignItems:"center",gap:4}}><Plus s={10} c={T.mid}/> Ny mappe</button>}
     </div>
 
     {status&&<div style={{fontSize:13,color:status.startsWith("✓")?T.ok:T.red,marginBottom:12,fontWeight:500}}>{status}</div>}
@@ -1370,7 +1370,7 @@ function Team({supabase,user}){
     <div style={{width:220,minWidth:220,borderRight:`1px solid ${T.brdL}`,display:"flex",flexDirection:"column",overflow:"hidden"}}>
       <div style={{padding:"12px 14px 8px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
         <div style={{fontSize:10,fontWeight:700,color:T.dim,letterSpacing:".1em",textTransform:"uppercase"}}>Wiki / Sider</div>
-        <button onClick={startNew} style={{background:"none",color:T.acc,fontSize:16,cursor:"pointer",lineHeight:1}} title="Ny side">+</button>
+        <button onClick={startNew} style={{background:T.accD,color:T.acc,fontSize:11,fontWeight:600,cursor:"pointer",padding:"4px 10px",borderRadius:6,border:`1px solid ${T.acc}44`}}>+ Ny side</button>
       </div>
       <div style={{flex:1,overflow:"auto",padding:"0 6px"}}>
         {pages.map(p=><button key={p.id} onClick={()=>{setSelectedId(p.id);setEditing(false);setSection("pages")}} style={{display:"block",width:"100%",textAlign:"left",padding:"8px 10px",borderRadius:6,marginBottom:2,background:selectedId===p.id&&section==="pages"?T.accD:"transparent",color:selectedId===p.id&&section==="pages"?T.acc:T.mid,fontSize:12.5,fontWeight:selectedId===p.id&&section==="pages"?600:400,cursor:"pointer",border:"none",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{p.title||"Uden titel"}</button>)}
