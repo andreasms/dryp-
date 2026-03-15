@@ -38,8 +38,8 @@ const Tip=({text})=>{
   </span>
 }
 
-const Badge=({children,c=T.acc,bg})=><span style={{display:"inline-flex",fontSize:11,fontWeight:600,letterSpacing:".03em",textTransform:"uppercase",color:c,background:bg||`${c}44`,padding:"3px 10px",borderRadius:99,whiteSpace:"nowrap",border:`1px solid ${c}55`}}>{children}</span>
-const Btn=({children,primary,danger,small,disabled,style,...p})=><button {...p} style={{display:"inline-flex",alignItems:"center",gap:6,padding:small?"5px 12px":"8px 16px",minHeight:small?32:undefined,borderRadius:8,fontSize:small?12:13,fontWeight:600,background:danger?T.red:primary?T.acc:small?T.card2:"transparent",color:danger?"#fff":primary?T.bg:T.txt,border:primary||danger?"none":`1px solid ${T.brd}`,opacity:disabled?.4:1,cursor:disabled?"not-allowed":"pointer",transition:"all .15s",...style}} disabled={disabled}/>
+const Badge=({children,c=T.acc,bg})=><span style={{display:"inline-flex",fontSize:11,fontWeight:600,letterSpacing:".03em",textTransform:"uppercase",color:c,background:bg||`${c}22`,padding:"3px 10px",borderRadius:99,whiteSpace:"nowrap",border:"none"}}>{children}</span>
+const Btn=({children,primary,danger,small,disabled,style,...p})=><button {...p} style={{display:"inline-flex",alignItems:"center",gap:6,padding:small?"5px 12px":"8px 16px",minHeight:small?32:undefined,borderRadius:8,fontSize:small?12:13,fontWeight:600,background:danger?T.red:primary?T.acc:T.card2,color:danger?"#fff":primary?T.bg:T.txt,border:primary||danger?"none":`1px solid ${T.brd}`,opacity:disabled?.4:1,cursor:disabled?"not-allowed":"pointer",transition:"all .15s",...style}} disabled={disabled}/>
 const Card=({children,style,onClick})=><div onClick={onClick} style={{background:T.card,border:`1px solid ${T.brdL}`,borderRadius:12,padding:18,cursor:onClick?"pointer":"default",...style}}>{children}</div>
 const Field=({label,children,tip})=><div style={{marginBottom:14}}><label style={{display:"flex",alignItems:"center",fontSize:11,fontWeight:600,color:T.mid,letterSpacing:".05em",textTransform:"uppercase",marginBottom:5}}>{label}{tip&&<Tip text={tip}/>}</label>{children}</div>
 const Modal=({title,onClose,children,wide})=><div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.75)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1e3,padding:20}} onClick={onClose}><div className="fade-in" onClick={e=>e.stopPropagation()} style={{background:T.card,border:`1px solid ${T.brd}`,borderRadius:16,width:"100%",maxWidth:wide?760:480,maxHeight:"88vh",overflow:"auto",padding:28}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:22}}><h3 style={{fontSize:18,fontWeight:700}}>{title}</h3><button onClick={onClose} aria-label="Luk" title="Luk" style={{background:"none",color:T.dim,fontSize:18,cursor:"pointer",padding:4}}>✕</button></div>{children}</div></div>
@@ -148,10 +148,10 @@ function Dashboard({data,supabase,setPage,setBatchNav,rawStock={}}){
     <div style={{marginBottom:20}}>
       <div style={{fontSize:10,fontWeight:700,color:T.dim,letterSpacing:".1em",textTransform:"uppercase",marginBottom:8}}>Hurtige handlinger</div>
       <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
-        <Btn primary onClick={()=>setPage("production")}>Start produktion</Btn>
-        <Btn onClick={()=>setPage("inventory")}>Opret lot</Btn>
-        <Btn onClick={()=>setPage("batches")}>Se alle batches{activeBatches.length>0&&<span style={{marginLeft:6,background:T.warn,color:"#000",borderRadius:9,padding:"1px 6px",fontSize:10,fontWeight:700}}>{activeBatches.length}</span>}</Btn>
-        <Btn onClick={()=>setPage("inventory")}>Se lageralarmer{low.length>0&&<span style={{marginLeft:6,background:T.red,color:"#fff",borderRadius:9,padding:"1px 6px",fontSize:10,fontWeight:700}}>{low.length}</span>}</Btn>
+        <Btn primary onClick={()=>setPage("production")}>▶ Start produktion</Btn>
+        <Btn onClick={()=>setPage("inventory")}>+ Opret lot</Btn>
+        <Btn onClick={()=>setPage("batches")}>⬢ Batches{activeBatches.length>0&&<span style={{marginLeft:6,background:T.warn,color:"#000",borderRadius:9,padding:"1px 6px",fontSize:10,fontWeight:700}}>{activeBatches.length}</span>}</Btn>
+        <Btn onClick={()=>setPage("inventory")}>▦ Lager{low.length>0&&<span style={{marginLeft:6,background:T.red,color:"#fff",borderRadius:9,padding:"1px 6px",fontSize:10,fontWeight:700}}>{low.length}</span>}</Btn>
       </div>
     </div>
 
@@ -534,7 +534,7 @@ function Batches({data,update,supabase,batchNav,setBatchNav}){
             return<div key={b.itemId} onClick={openLotFor} style={{marginBottom:12,padding:"10px 12px",background:T.input,borderRadius:8,border:`1px solid ${hasUsage?`${T.ok}44`:`${T.warn}44`}`,cursor:selected.status==="in_progress"?"pointer":"default"}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:hasUsage?8:0}}>
                 <div style={{display:"flex",alignItems:"center",gap:8}}>
-                  <span style={{fontSize:14,color:hasUsage?T.ok:T.warn}}>{hasUsage?"✓":"⚠"}</span>
+                  <span style={{fontSize:12,fontWeight:700,color:hasUsage?T.ok:T.warn,background:hasUsage?`${T.ok}22`:`${T.warn}22`,width:26,height:26,borderRadius:7,display:"inline-flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{hasUsage?"✓":"⚠"}</span>
                   <div>
                     <div style={{fontSize:13,fontWeight:600}}>{inv?.name||b.itemId}</div>
                     <div style={{fontSize:11,color:T.dim}}>Behov: {b.qty} {b.unit}{usedTotal>0&&<span style={{color:T.acc,marginLeft:8}}>Registreret: {usedTotal} {b.unit}</span>}</div>
