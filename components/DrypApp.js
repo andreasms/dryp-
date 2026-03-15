@@ -811,9 +811,26 @@ function Inventory({data,update,supabase}){
   const[show,setShow]=useState(false);const[form,setForm]=useState({});const[eId,setEId]=useState(null);const[qv,setQv]=useState("")
   const[showLot,setShowLot]=useState(false);const[lotForm,setLotForm]=useState({});const[savingLot,setSavingLot]=useState(false)
   const[activeLots,setActiveLots]=useState([])
+  const[fgStock,setFgStock]=useState({})
   const loadLots=()=>{if(supabase)getActiveLots(supabase).then(setActiveLots).catch(()=>{})}
   useEffect(()=>{loadLots()},[supabase])
-  const cats=[...new Set(data.inventory.map(i=>i.cat))]
+  const fgItems=(data.inventory||[]).filter(i=>i.cat==="Færdigvare")
+  const fgIds=fgItems.map(i=>i.id).join(",")
+  useEffect(()=>{
+    if(!supabase||fgItems.length===0){setFgStock({});return}
+    supabase.from("stock_levels").select("item_id,current_qty,last_movement_at").in("item_id",fgItems.map(i=>i.id))
+      .then(({data:rows})=>{
+        if(!rows)return
+        const m={}
+        rows.forEach(r=>{
+          const prev=m[r.item_id]
+          if(!prev){m[r.item_id]={qty:r.current_qty||0,lastAt:r.last_movement_at||null}}
+          else{prev.qty+=(r.current_qty||0);if(r.last_movement_at&&(!prev.lastAt||r.last_movement_at>prev.lastAt))prev.lastAt=r.last_movement_at}
+        })
+        setFgStock(m)
+      }).catch(()=>{})
+  },[supabase,fgIds])
+  const cats=[...new Set(data.inventory.map(i=>i.cat))].filter(c=>c!=="Færdigvare")
   const rawItems=(data.inventory||[]).filter(i=>i.cat==="Råvare")
 
   const saveLot=async()=>{
@@ -878,6 +895,27 @@ function Inventory({data,update,supabase}){
         </div>}
       </Card>})}
     </div>)}
+
+    {/* ─── FÆRDIGVARER (read-only, stock from SQL) ─── */}
+    {fgItems.length>0&&<div style={{marginBottom:22}}>
+      <div style={{fontSize:11,fontWeight:700,color:T.dim,letterSpacing:".1em",textTransform:"uppercase",marginBottom:10,paddingBottom:4,borderBottom:`1px solid ${T.brdL}`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+        <span>Færdigvarer</span>
+        <span style={{fontSize:10,color:T.acc,fontWeight:500,letterSpacing:".02em",textTransform:"none"}}>Beholdning styres af batch-produktion</span>
+      </div>
+      {fgItems.map(item=>{const st=fgStock[item.id];const qty=st?.qty||0;const lastAt=st?.lastAt;return<Card key={item.id} style={{marginBottom:6,padding:12}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div>
+            <div style={{fontSize:14,fontWeight:500}}>{item.name}</div>
+            <div style={{fontSize:12,color:T.dim}}>{item.id}{lastAt&&` · Seneste bevægelse: ${new Date(lastAt).toLocaleDateString("da-DK",{day:"numeric",month:"short",year:"numeric"})}`}</div>
+          </div>
+          <div style={{display:"inline-flex",alignItems:"baseline",gap:5,padding:"6px 14px",borderRadius:8,fontSize:12,fontWeight:600,background:T.card2,color:qty>0?T.ok:T.dim,border:`1px solid ${T.brd}`}}>
+            <span style={{fontSize:18,fontFamily:T.fm,fontWeight:700}}>{qty}</span>
+            <span style={{color:T.dim}}>{item.unit}</span>
+          </div>
+        </div>
+      </Card>})}
+    </div>}
+
     {showLot&&<Modal title={`Opret lot · ${lotForm.item_name||"—"}`} onClose={()=>setShowLot(false)}>
       <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:18,padding:"10px 14px",background:T.accDD,borderRadius:10,border:`1px solid ${T.acc}33`}}>
         <div style={{fontSize:22}}>📦</div>
