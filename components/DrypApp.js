@@ -978,10 +978,10 @@ function Inventory({data,update,supabase,rawStock={},refreshStock}){
             {eId===item.id
               ?<div style={{display:"flex",gap:6,alignItems:"center"}}><input type="number" value={qv} onChange={e=>setQv(e.target.value)} style={{width:70}} autoFocus onKeyDown={e=>{if(e.key==="Enter"){update("inventory",p=>p.map(i=>i.id===item.id?{...i,qty:parseFloat(qv)||0}:i));setEId(null)}}}/><Btn small primary onClick={()=>{update("inventory",p=>p.map(i=>i.id===item.id?{...i,qty:parseFloat(qv)||0}:i));setEId(null)}}>Gem</Btn><Btn small onClick={()=>setEId(null)}>Annuller</Btn></div>
               :<>
-                {!hasSql&&<Btn small onClick={()=>{setEId(item.id);setQv(String(sq))}}>Ret antal</Btn>}
-                {item.cat==="Råvare"&&<Btn small onClick={()=>{setLotForm({item_id:item.id,item_name:item.name,item_unit:item.unit,lot_number:"",supplier:"",qty_received:"",received_date:today(),expiry_date:""});setShowLot(true)}} style={{background:T.accD,color:T.acc,border:`1px solid ${T.acc}44`}}>Opret lot</Btn>}
-                <Btn small onClick={()=>{setForm(item);setShow(true)}}>Rediger vare</Btn>
-                <Btn small danger onClick={()=>{if(confirm(`Slet "${item.name}"?`))update("inventory",p=>p.filter(x=>x.id!==item.id))}}>Slet</Btn>
+                {!hasSql&&<Btn onClick={()=>{setEId(item.id);setQv(String(sq))}}>Ret antal</Btn>}
+                {item.cat==="Råvare"&&<Btn onClick={()=>{setLotForm({item_id:item.id,item_name:item.name,item_unit:item.unit,lot_number:"",supplier:"",qty_received:"",received_date:today(),expiry_date:""});setShowLot(true)}} style={{background:T.accD,color:T.acc,border:`1px solid ${T.acc}44`}}>Opret lot</Btn>}
+                <Btn onClick={()=>{setForm(item);setShow(true)}}>Rediger vare</Btn>
+                <Btn danger onClick={()=>{if(confirm(`Slet "${item.name}"?`))update("inventory",p=>p.filter(x=>x.id!==item.id))}}>Slet</Btn>
               </>}
           </div></div>
         <div style={{marginTop:6,height:4,background:T.input,borderRadius:2,overflow:"hidden"}}><div style={{height:"100%",width:`${Math.min(sq/(item.min||1)*100,100)}%`,background:low?T.red:sq<item.min*1.5?T.warn:T.ok,borderRadius:2}}/></div>
