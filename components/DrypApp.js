@@ -13,6 +13,8 @@ const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,6)
 const today=()=>new Date().toISOString().slice(0,10)
 const fk=n=>n?`${Number(n).toLocaleString("da-DK")} kr`:"—"
 const addDays=(d,n)=>{const x=new Date(d);x.setDate(x.getDate()+n);return x.toISOString().slice(0,10)}
+// Stock helper: prefer SQL-derived stock for raw materials, fall back to JSON qty
+const getStock=(item,rawStock)=>item.cat==="Råvare"&&rawStock[item.id]!=null?rawStock[item.id].qty:item.qty
 
 // ═══ THEME — bigger fonts, better readability ═══
 const T={bg:"#0f1a0b",card:"#1a2814",card2:"#1f3318",input:"#0d150a",brd:"#2d4a22",brdL:"#1f3318",acc:"#a8d870",accD:"rgba(168,216,112,0.15)",accDD:"rgba(168,216,112,0.08)",txt:"#e8f0d8",mid:"rgba(232,240,216,0.65)",dim:"rgba(232,240,216,0.35)",red:"#e85454",warn:"#e8b854",ok:"#54c878",fm:"'JetBrains Mono','SF Mono',monospace",fs:13.5}
@@ -55,6 +57,20 @@ export default function DrypApp({data,update,save,user,onLogout,supabase,saveErr
   const[sb,setSb]=useState(typeof window!=='undefined'?window.innerWidth>900:true)
   const[isMobile,setIsMobile]=useState(typeof window!=='undefined'?window.innerWidth<=768:false)
   useEffect(()=>{const h=()=>{setSb(window.innerWidth>900);setIsMobile(window.innerWidth<=768)};window.addEventListener("resize",h);return()=>window.removeEventListener("resize",h)},[])
+  // SQL-derived stock levels for raw materials
+  const[rawStock,setRawStock]=useState({})
+  const rmIds=(data.inventory||[]).filter(i=>i.cat==="Råvare"||i.cat==="Emballage").map(i=>i.id).join(",")
+  useEffect(()=>{
+    if(!supabase||!rmIds){setRawStock({});return}
+    const ids=(data.inventory||[]).filter(i=>i.cat==="Råvare"||i.cat==="Emballage").map(i=>i.id)
+    supabase.from("stock_levels").select("item_id,current_qty").in("item_id",ids)
+      .then(({data:rows})=>{
+        if(!rows)return
+        const m={}
+        rows.forEach(r=>{const prev=m[r.item_id];if(!prev)m[r.item_id]={qty:r.current_qty||0};else prev.qty+=(r.current_qty||0)})
+        setRawStock(m)
+      }).catch(()=>{})
+  },[supabase,rmIds])
 
   const nav=[
     {id:"_hd",l:"PRODUKTION",hd:true},
@@ -104,16 +120,16 @@ export default function DrypApp({data,update,save,user,onLogout,supabase,saveErr
         <div style={{flex:1}}/>
         <div style={{fontSize:11,color:T.dim,fontFamily:T.fm}}>{new Date().toLocaleDateString("da-DK",{weekday:"long",day:"numeric",month:"long"})}</div>
       </header>
-      <main style={{flex:1,overflow:"auto",padding:22}} className="fade-in" key={page}><Pg data={data} update={update} save={save} user={user} supabase={supabase} setPage={setPage} batchNav={batchNav} setBatchNav={setBatchNav}/></main>
+      <main style={{flex:1,overflow:"auto",padding:22}} className="fade-in" key={page}><Pg data={data} update={update} save={save} user={user} supabase={supabase} setPage={setPage} batchNav={batchNav} setBatchNav={setBatchNav} rawStock={rawStock}/></main>
     </div>
   </div>
 }
 
 // ═══ DASHBOARD — cleaner, priority-focused ═══
-function Dashboard({data,supabase,setPage,setBatchNav}){
+function Dashboard({data,supabase,setPage,setBatchNav,rawStock={}}){
   const mo=today().slice(0,7);const prods=data.productions.filter(p=>p.date?.startsWith(mo))
   const rev=data.orders.filter(o=>o.date?.startsWith(mo)).reduce((s,o)=>s+(parseFloat(o.price)||0)*(parseInt(o.qty)||0),0)
-  const low=data.inventory.filter(i=>i.qty<i.min)
+  const low=data.inventory.filter(i=>getStock(i,rawStock)<i.min)
   const ccpOk=prods.filter(p=>p.ccp1Ok&&p.ccp2Ok).length
   const openDevs=(data.haccp?.deviations||[]).filter(d=>!d.closedDate)
   const pendingOrders=(data.orders||[]).filter(o=>o.status==="bestilt")
@@ -852,7 +868,7 @@ function HACCPLogs({data,update,supabase,user}){
 }
 
 // ═══ INVENTORY, PLANNING, CUSTOMERS, ECONOMY — kept from v2 with bigger fonts ═══
-function Inventory({data,update,supabase}){
+function Inventory({data,update,supabase,rawStock={}}){
   const[show,setShow]=useState(false);const[form,setForm]=useState({});const[eId,setEId]=useState(null);const[qv,setQv]=useState("")
   const[showLot,setShowLot]=useState(false);const[lotForm,setLotForm]=useState({});const[savingLot,setSavingLot]=useState(false)
   const[activeLots,setActiveLots]=useState([])
@@ -916,17 +932,17 @@ function Inventory({data,update,supabase}){
       <Btn primary onClick={()=>{setForm({id:uid(),name:"",unit:"stk",qty:0,min:0,cat:"Råvare",leadDays:7,supplier:"",costPer:0});setShow(true)}}><Plus s={12} c={T.bg}/> Tilføj vare</Btn>
     </SH>
     {cats.map(cat=><div key={cat} style={{marginBottom:22}}><div style={{fontSize:11,fontWeight:700,color:T.dim,letterSpacing:".1em",textTransform:"uppercase",marginBottom:10,paddingBottom:4,borderBottom:`1px solid ${T.brdL}`,display:"flex",alignItems:"center",justifyContent:"space-between"}}><span>{cat}</span>{cat==="Råvare"&&<span style={{fontSize:10,color:T.acc,fontWeight:500,letterSpacing:".02em",textTransform:"none"}}>Opret lots for at spore råvareforbrug i produktion</span>}</div>
-      {data.inventory.filter(i=>i.cat===cat).map(item=>{const low=item.qty<item.min;return<Card key={item.id} style={{marginBottom:6,padding:12}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><div><div style={{fontSize:14,fontWeight:500}}>{low&&<span style={{color:T.red}}>⚠ </span>}{item.name}</div><div style={{fontSize:12,color:T.dim}}>Min: {item.min} · Lead: {item.leadDays}d{item.supplier&&` · ${item.supplier}`} · {fk(item.costPer)}/{item.unit}</div></div>
+      {data.inventory.filter(i=>i.cat===cat).map(item=>{const sq=getStock(item,rawStock);const hasSql=item.cat==="Råvare"&&rawStock[item.id]!=null;const low=sq<item.min;return<Card key={item.id} style={{marginBottom:6,padding:12}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><div><div style={{fontSize:14,fontWeight:500}}>{low&&<span style={{color:T.red}}>⚠ </span>}{item.name}</div><div style={{fontSize:12,color:T.dim}}>Min: {item.min} · Lead: {item.leadDays}d{item.supplier&&` · ${item.supplier}`} · {fk(item.costPer)}/{item.unit}{hasSql&&<span style={{color:T.acc,marginLeft:6}} title="Beregnet fra lot-bevægelser">· lot-baseret</span>}</div></div>
           <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
             {eId===item.id
               ?<div style={{display:"flex",gap:6,alignItems:"center"}}><input type="number" value={qv} onChange={e=>setQv(e.target.value)} style={{width:70}} autoFocus onKeyDown={e=>{if(e.key==="Enter"){update("inventory",p=>p.map(i=>i.id===item.id?{...i,qty:parseFloat(qv)||0}:i));setEId(null)}}}/><Btn small primary onClick={()=>{update("inventory",p=>p.map(i=>i.id===item.id?{...i,qty:parseFloat(qv)||0}:i));setEId(null)}}>✓ Gem</Btn><Btn small onClick={()=>setEId(null)}>Annuller</Btn></div>
-              :<button onClick={()=>{setEId(item.id);setQv(String(item.qty))}} style={{display:"inline-flex",alignItems:"baseline",gap:5,padding:"6px 14px",borderRadius:8,fontSize:12,fontWeight:600,background:T.card2,color:low?T.red:T.txt,border:`1px solid ${T.brd}`,cursor:"pointer"}}><span style={{fontSize:18,fontFamily:T.fm,fontWeight:700}}>{item.qty}</span><span style={{color:T.dim}}>{item.unit}</span><span style={{color:T.acc,marginLeft:2}}>· Ret antal</span></button>}
+              :<button onClick={()=>{setEId(item.id);setQv(String(sq))}} style={{display:"inline-flex",alignItems:"baseline",gap:5,padding:"6px 14px",borderRadius:8,fontSize:12,fontWeight:600,background:T.card2,color:low?T.red:T.txt,border:`1px solid ${T.brd}`,cursor:"pointer"}}><span style={{fontSize:18,fontFamily:T.fm,fontWeight:700}}>{sq}</span><span style={{color:T.dim}}>{item.unit}</span>{!hasSql&&<span style={{color:T.acc,marginLeft:2}}>· Ret antal</span>}</button>}
             {item.cat==="Råvare"&&<button onClick={()=>{setLotForm({item_id:item.id,item_name:item.name,item_unit:item.unit,lot_number:"",supplier:"",qty_received:"",received_date:today(),expiry_date:""});setShowLot(true)}} style={{display:"inline-flex",alignItems:"center",gap:5,padding:"6px 14px",borderRadius:8,fontSize:12,fontWeight:600,background:T.accD,color:T.acc,border:`1px solid ${T.acc}44`,cursor:"pointer"}}>+ Opret lot</button>}
             <button onClick={()=>{setForm(item);setShow(true)}} style={{display:"inline-flex",alignItems:"center",gap:5,padding:"6px 14px",borderRadius:8,fontSize:12,fontWeight:600,background:T.card2,color:T.txt,border:`1px solid ${T.brd}`,cursor:"pointer"}}>✎ Rediger</button>
             <button onClick={()=>{if(confirm(`Slet "${item.name}"?`))update("inventory",p=>p.filter(x=>x.id!==item.id))}} style={{display:"inline-flex",alignItems:"center",gap:5,padding:"6px 14px",borderRadius:8,fontSize:12,fontWeight:600,background:T.red,color:"#fff",border:"none",cursor:"pointer"}}>✕ Slet</button>
           </div></div>
-        <div style={{marginTop:6,height:4,background:T.input,borderRadius:2,overflow:"hidden"}}><div style={{height:"100%",width:`${Math.min(item.qty/(item.min||1)*100,100)}%`,background:low?T.red:item.qty<item.min*1.5?T.warn:T.ok,borderRadius:2}}/></div>
+        <div style={{marginTop:6,height:4,background:T.input,borderRadius:2,overflow:"hidden"}}><div style={{height:"100%",width:`${Math.min(sq/(item.min||1)*100,100)}%`,background:low?T.red:sq<item.min*1.5?T.warn:T.ok,borderRadius:2}}/></div>
         {item.cat==="Råvare"&&activeLots.filter(l=>l.item_id===item.id).length>0&&<div style={{marginTop:8,paddingTop:8,borderTop:`1px solid ${T.brdL}`}}>
           <div style={{fontSize:10,fontWeight:600,color:T.dim,textTransform:"uppercase",letterSpacing:".06em",marginBottom:4}}>Aktive lots</div>
           {activeLots.filter(l=>l.item_id===item.id).map(l=><div key={l.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:12,padding:"3px 0",borderBottom:`1px solid ${T.brdL}22`}}>
@@ -977,19 +993,19 @@ function Inventory({data,update,supabase}){
   </div>
 }
 
-function Planning({data,update}){
+function Planning({data,update,rawStock={}}){
   const recipes=(data.recipes||[]).filter(r=>r.active)
   const[planQty,setPlanQty]=useState(()=>Object.fromEntries(recipes.map(r=>[r.id,50])))
   const[editItem,setEditItem]=useState(null);const[ef,setEf]=useState({})
   const needs={};recipes.forEach(r=>{const qty=parseInt(planQty[r.id])||0;(r.bom||[]).forEach(b=>{if(!needs[b.itemId])needs[b.itemId]={required:0,items:[]};needs[b.itemId].required+=b.qty*qty;needs[b.itemId].items.push({recipe:r.name,total:b.qty*qty})})})
-  const plan=data.inventory.map(inv=>{const n=needs[inv.id]||{required:0,items:[]};const deficit=Math.max(0,n.required-inv.qty);const oq=deficit>0?Math.ceil(deficit/10)*10:0;return{...inv,need:n.required,deficit,orderQty:oq,orderBy:oq>0?addDays(today(),-(inv.leadDays||7)):null,needsOrder:oq>0}}).sort((a,b)=>(b.needsOrder?1:0)-(a.needsOrder?1:0))
+  const plan=data.inventory.map(inv=>{const sq=getStock(inv,rawStock);const n=needs[inv.id]||{required:0,items:[]};const deficit=Math.max(0,n.required-sq);const oq=deficit>0?Math.ceil(deficit/10)*10:0;return{...inv,_sq:sq,need:n.required,deficit,orderQty:oq,orderBy:oq>0?addDays(today(),-(inv.leadDays||7)):null,needsOrder:oq>0}}).sort((a,b)=>(b.needsOrder?1:0)-(a.needsOrder?1:0))
   return<div style={{maxWidth:1060}}>
     <SH title="Indkøbsplan" desc="Beregnet fra opskrifter og lagerstatus" tip="Angiv antal flasker du vil producere. Systemet beregner indkøbsbehov. Klik ✎ for at ændre leverandør, pris og lead time direkte."/>
     <Card style={{marginBottom:20}}><div style={{fontSize:13,fontWeight:600,marginBottom:14}}>Planlagt produktion</div><div style={{display:"flex",gap:16,flexWrap:"wrap"}}>{recipes.map(r=><div key={r.id} style={{flex:"1 1 220px"}}><div style={{fontSize:13,color:T.mid,marginBottom:5}}>{r.name}</div><div style={{display:"flex",alignItems:"center",gap:10}}><input type="number" value={planQty[r.id]||0} onChange={e=>setPlanQty({...planQty,[r.id]:e.target.value})} style={{width:90,textAlign:"center"}}/><span style={{fontSize:12,color:T.dim}}>flasker</span></div></div>)}</div></Card>
     <div style={{fontSize:14,fontWeight:600,marginBottom:14}}>Indkøbsbehov</div>
     {plan.map(item=><Card key={item.id} style={{marginBottom:8,padding:14,borderLeft:item.needsOrder?`4px solid ${T.red}`:`4px solid ${T.ok}`}}>
       {editItem===item.id?<div className="fade-in"><div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:"0 14px"}}><Field label="Navn"><input value={ef.name} onChange={e=>setEf({...ef,name:e.target.value})}/></Field><Field label="Enhed"><input value={ef.unit} onChange={e=>setEf({...ef,unit:e.target.value})}/></Field><Field label="Pris pr. enhed"><input type="number" step=".1" value={ef.costPer} onChange={e=>setEf({...ef,costPer:parseFloat(e.target.value)||0})}/></Field><Field label="Leverandør"><input value={ef.supplier} onChange={e=>setEf({...ef,supplier:e.target.value})}/></Field><Field label="Lead time (dage)"><input type="number" value={ef.leadDays} onChange={e=>setEf({...ef,leadDays:parseInt(e.target.value)||0})}/></Field><Field label="Minimum"><input type="number" value={ef.min} onChange={e=>setEf({...ef,min:parseFloat(e.target.value)||0})}/></Field></div><div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn small onClick={()=>setEditItem(null)}>Annuller</Btn><Btn small primary onClick={()=>{update("inventory",prev=>prev.map(i=>i.id===editItem?{...i,...ef}:i));setEditItem(null)}}>✓ Gem</Btn></div></div>:
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><div><div style={{fontSize:14,fontWeight:500}}>{item.name}</div><div style={{fontSize:12,color:T.dim}}>Behov: {item.need.toFixed(1)} {item.unit} · Lager: {item.qty} · Lead: {item.leadDays}d{item.supplier&&` · ${item.supplier}`} · {fk(item.costPer)}/{item.unit}</div></div><div style={{display:"flex",alignItems:"center",gap:10}}><Btn small onClick={()=>{setEditItem(item.id);setEf({name:item.name,costPer:item.costPer,supplier:item.supplier,leadDays:item.leadDays,min:item.min,unit:item.unit})}}>✎ Rediger</Btn>{item.needsOrder?<div style={{textAlign:"right"}}><div style={{fontSize:18,fontWeight:700,fontFamily:T.fm,color:T.red}}>{item.orderQty} {item.unit}</div><div style={{fontSize:11,color:T.warn}}>Bestil senest {item.orderBy}</div><div style={{fontSize:11,color:T.dim}}>~{fk(Math.round(item.orderQty*(item.costPer||0)))}</div></div>:<Badge c={T.ok}>OK</Badge>}</div></div>}
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><div><div style={{fontSize:14,fontWeight:500}}>{item.name}</div><div style={{fontSize:12,color:T.dim}}>Behov: {item.need.toFixed(1)} {item.unit} · Lager: {item._sq} · Lead: {item.leadDays}d{item.supplier&&` · ${item.supplier}`} · {fk(item.costPer)}/{item.unit}</div></div><div style={{display:"flex",alignItems:"center",gap:10}}><Btn small onClick={()=>{setEditItem(item.id);setEf({name:item.name,costPer:item.costPer,supplier:item.supplier,leadDays:item.leadDays,min:item.min,unit:item.unit})}}>✎ Rediger</Btn>{item.needsOrder?<div style={{textAlign:"right"}}><div style={{fontSize:18,fontWeight:700,fontFamily:T.fm,color:T.red}}>{item.orderQty} {item.unit}</div><div style={{fontSize:11,color:T.warn}}>Bestil senest {item.orderBy}</div><div style={{fontSize:11,color:T.dim}}>~{fk(Math.round(item.orderQty*(item.costPer||0)))}</div></div>:<Badge c={T.ok}>OK</Badge>}</div></div>}
     </Card>)}
     <Card style={{marginTop:18,background:T.accD,border:"none"}}><div style={{fontSize:13,fontWeight:600,marginBottom:6}}>Total indkøb</div><div style={{fontSize:22,fontWeight:700,fontFamily:T.fm,color:T.acc}}>{fk(Math.round(plan.reduce((s,i)=>s+i.orderQty*(i.costPer||0),0)))}</div></Card>
   </div>
