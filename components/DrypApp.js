@@ -745,6 +745,40 @@ function HACCPLogs({data,update,supabase,user}){
     return Object.entries(groups).sort((a,b)=>b[0].localeCompare(a[0]))
   }
 
+  const exportCsv=()=>{
+    const all=getMergedAll()
+    if(all.length===0)return
+    const pks=new Set()
+    all.forEach(e=>Object.keys(e.payload||{}).forEach(k=>pks.add(k)))
+    const pkList=[...pks].sort()
+    const fixed=["Dato","Kategori","Operatør","Noter","Kilde","Oprettet"]
+    const headers=[...fixed,...pkList]
+    const fmt=v=>{
+      if(v==null)return""
+      if(v===true)return"Ja"
+      if(v===false)return"Nej"
+      if(Array.isArray(v))return v.join("; ")
+      if(typeof v==="object")return JSON.stringify(v)
+      return String(v)
+    }
+    const esc=v=>{const s=fmt(v).replace(/"/g,'""');return'"'+s+'"'}
+    const rows=all.map(e=>{
+      const p=e.payload||{}
+      const base=[e.log_date||"",tabLabel[e.category]||e.category||"",e.operator||"",(e.notes||"").replace(/\n/g," "),e.source==="supabase"?"Supabase":"Arkiv",e.created_at||""]
+      const dyn=pkList.map(k=>p[k])
+      return[...base,...dyn].map(esc).join(",")
+    })
+    const csv="\uFEFF"+[headers.map(esc).join(","),...rows].join("\n")
+    const monday=getMonday(weekOffset)
+    const wk=weekNum(monday)
+    const yr=monday.slice(0,4)
+    const blob=new Blob([csv],{type:"text/csv;charset=utf-8"})
+    const url=URL.createObjectURL(blob)
+    const a=document.createElement("a");a.href=url;a.download="haccp-uge-"+wk+"-"+yr+".csv"
+    document.body.appendChild(a);a.click();document.body.removeChild(a)
+    setTimeout(()=>URL.revokeObjectURL(url),1000)
+  }
+
   const entries=getMergedEntries()
   const isHistory=period==="history"
 
@@ -766,6 +800,8 @@ function HACCPLogs({data,update,supabase,user}){
       <div style={{fontSize:13,fontWeight:600}}>Uge {weekNum(getMonday(weekOffset))} · {getMonday(weekOffset)} — {getSunday(weekOffset)}</div>
       <button onClick={()=>setWeekOffset(w=>Math.min(w+1,0))} disabled={weekOffset>=0} aria-label="Næste uge" title="Næste uge" style={{background:"none",color:weekOffset>=0?T.dim:T.acc,fontSize:16,cursor:weekOffset>=0?"not-allowed":"pointer",padding:"4px 8px"}}>→</button>
       {weekOffset<0&&<button onClick={()=>setWeekOffset(0)} style={{background:T.accDD,color:T.acc,fontSize:11,cursor:"pointer",fontWeight:600,padding:"3px 10px",borderRadius:6,border:`1px solid ${T.acc}44`}}>Gå til nu</button>}
+      <div style={{flex:1}}/>
+      <Btn small onClick={exportCsv} disabled={loading}>Eksportér CSV</Btn>
     </div>}
 
     {/* Tabs — shown for today and week views */}
