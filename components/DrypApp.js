@@ -979,6 +979,29 @@ function Economy({data,save}){
       <Stat label="Overhead / flaske" value={overheadPerBottle!==null?`${overheadPerBottle.toFixed(1)} kr`:"—"} c={T.mid} sub={totalQtyThis>0?`${totalQtyThis} stk solgt denne måned`:`${fk(p.overhead||0)} pr. måned`}/>
     </div>
 
+    {/* ─── B3: REVENUE MINI CHART (6 months) ─── */}
+    {(()=>{
+      const daMo=["jan","feb","mar","apr","maj","jun","jul","aug","sep","okt","nov","dec"]
+      const months=[]
+      for(let i=5;i>=0;i--){const d=new Date(today());d.setMonth(d.getMonth()-i);months.push(d.toISOString().slice(0,7))}
+      const revByMonth=months.map(m=>({key:m,label:daMo[parseInt(m.slice(5,7))-1],rev:orders.filter(o=>o.date?.startsWith(m)).reduce((s,o)=>s+(parseFloat(o.price)||0)*(parseInt(o.qty)||0),0)}))
+      const maxRev=Math.max(...revByMonth.map(m=>m.rev),1)
+      const hasAny=revByMonth.some(m=>m.rev>0)
+      return<Card style={{marginBottom:22,padding:16}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:14}}>
+          <span style={{fontSize:14,fontWeight:600}}>Omsætning (6 mdr.)</span>
+          <span style={{fontSize:11,color:T.dim}}>inkl. alle ordrer</span>
+        </div>
+        {hasAny?<div style={{display:"flex",alignItems:"flex-end",gap:8,height:120}}>
+          {revByMonth.map(m=>{const h=m.rev>0?Math.max(m.rev/maxRev*100,4):0;return<div key={m.key} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
+            <span style={{fontSize:10,fontFamily:T.fm,color:T.mid}}>{m.rev>0?fk(m.rev):""}</span>
+            <div style={{width:"100%",maxWidth:48,height:`${h}%`,background:m.key===mo?T.acc:`${T.acc}88`,borderRadius:"4px 4px 0 0",transition:"height .3s"}}/>
+            <span style={{fontSize:10,color:m.key===mo?T.acc:T.dim,fontWeight:m.key===mo?600:400}}>{m.label}</span>
+          </div>})}
+        </div>:<div style={{textAlign:"center",padding:"20px 0",fontSize:12,color:T.dim}}>Ingen ordrer de sidste 6 måneder</div>}
+      </Card>
+    })()}
+
     {/* ─── B2: PRODUCT MARGIN CARDS ─── */}
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
       <span style={{fontSize:14,fontWeight:600}}>Produktmargin</span>
