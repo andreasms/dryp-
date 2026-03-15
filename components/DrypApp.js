@@ -446,60 +446,39 @@ function Batches({data,update,supabase,batchNav,setBatchNav}){
       </div>
 
       {/* ─── NÆSTE SKRIDT ─── */}
-      {(()=>{const s=selected.status;const hasLots=lotUsage.length>0;const hasQty=!!(selected.actual_qty||parseInt(actualQty));if(s==="planned")return<div style={{background:T.accDD,borderLeft:`3px solid ${T.acc}`,borderRadius:8,padding:"12px 16px",marginBottom:18,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-        <div><div style={{fontSize:10,fontWeight:700,color:T.dim,textTransform:"uppercase",letterSpacing:".08em",marginBottom:3}}>Næste skridt</div><div style={{fontSize:13,color:T.txt,fontWeight:500}}>Start produktion af denne batch</div></div>
-        <Btn primary disabled={acting} onClick={()=>doAction("in_progress",{started_at:new Date().toISOString()})}>▶ Start batch</Btn>
-      </div>;if(s==="in_progress"&&!hasLots)return<div style={{background:T.accDD,borderLeft:`3px solid ${T.warn}`,borderRadius:8,padding:"12px 16px",marginBottom:18}}>
-        <div style={{fontSize:10,fontWeight:700,color:T.dim,textTransform:"uppercase",letterSpacing:".08em",marginBottom:3}}>Næste skridt</div><div style={{fontSize:13,color:T.txt,fontWeight:500}}>Tilføj råvare-lot i sektionen nedenfor</div>
-      </div>;if(s==="in_progress"&&hasLots&&!hasQty)return<div style={{background:T.accDD,borderLeft:`3px solid ${T.warn}`,borderRadius:8,padding:"12px 16px",marginBottom:18}}>
-        <div style={{fontSize:10,fontWeight:700,color:T.dim,textTransform:"uppercase",letterSpacing:".08em",marginBottom:3}}>Næste skridt</div><div style={{fontSize:13,color:T.txt,fontWeight:500}}>Angiv faktisk produceret antal nedenfor</div>
-      </div>;if(s==="in_progress"&&hasLots&&hasQty)return<div style={{background:T.accDD,borderLeft:`3px solid ${T.ok}`,borderRadius:8,padding:"12px 16px",marginBottom:18,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-        <div><div style={{fontSize:10,fontWeight:700,color:T.dim,textTransform:"uppercase",letterSpacing:".08em",marginBottom:3}}>Næste skridt</div><div style={{fontSize:13,color:T.txt,fontWeight:500}}>Batch klar til afslutning</div></div>
-        <Btn primary disabled={acting} onClick={tryComplete}>✓ Afslut batch</Btn>
-      </div>;if(s==="completed")return<div style={{background:T.accDD,borderLeft:`3px solid ${T.ok}`,borderRadius:8,padding:"12px 16px",marginBottom:18}}>
-        <div style={{fontSize:13,color:T.ok,fontWeight:500}}>✓ Batch er afsluttet{selected.completed_at&&<span style={{color:T.dim,fontWeight:400,marginLeft:8,fontSize:11}}>{selected.completed_at.slice(0,10)}</span>}</div>
-      </div>;return null})()}
+      {(()=>{
+        const s=selected.status
+        const rawBom=(selected.recipe_snapshot?.bom||[]).filter(b=>{const inv=data.inventory.find(i=>i.id===b.itemId);return inv&&inv.cat==="Råvare"})
+        const missingRaw=rawBom.filter(b=>!lotUsage.some(lu=>(lu.item_id||lu.lots?.item_id)===b.itemId))
+        const allRawCovered=missingRaw.length===0
+        const hasQty=!!(selected.actual_qty||parseInt(actualQty))
+        const nsStyle=(bc)=>({background:T.accDD,borderLeft:`3px solid ${bc}`,borderRadius:8,padding:"12px 16px",marginBottom:18})
+        const nsLabel=<div style={{fontSize:10,fontWeight:700,color:T.dim,textTransform:"uppercase",letterSpacing:".08em",marginBottom:3}}>Næste skridt</div>
+        if(s==="planned")return<div style={{...nsStyle(T.acc),display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <div>{nsLabel}<div style={{fontSize:13,color:T.txt,fontWeight:500}}>Start produktion af denne batch</div></div>
+          <Btn primary disabled={acting} onClick={()=>doAction("in_progress",{started_at:new Date().toISOString()})}>▶ Start batch</Btn>
+        </div>
+        if(s==="in_progress"&&!allRawCovered)return<div style={nsStyle(T.warn)}>
+          {nsLabel}<div style={{fontSize:13,color:T.txt,fontWeight:500}}>Registrér råvarer ({missingRaw.length} mangler) — se sektion 3 nedenfor</div>
+        </div>
+        if(s==="in_progress"&&allRawCovered&&!hasQty)return<div style={nsStyle(T.warn)}>
+          {nsLabel}<div style={{fontSize:13,color:T.txt,fontWeight:500}}>Angiv faktisk produceret antal</div>
+        </div>
+        if(s==="in_progress"&&allRawCovered&&hasQty)return<div style={{...nsStyle(T.ok),display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <div>{nsLabel}<div style={{fontSize:13,color:T.txt,fontWeight:500}}>Batch klar til afslutning</div></div>
+          <Btn primary disabled={acting} onClick={tryComplete}>✓ Afslut batch</Btn>
+        </div>
+        if(s==="completed")return<div style={nsStyle(T.ok)}>
+          <div style={{fontSize:13,color:T.ok,fontWeight:500}}>✓ Batch er afsluttet{selected.completed_at&&<span style={{color:T.dim,fontWeight:400,marginLeft:8,fontSize:11}}>{selected.completed_at.slice(0,10)}</span>}</div>
+        </div>
+        return null
+      })()}
 
       {completionErr&&<div style={{background:"#3a1c1c",border:`1px solid ${T.red}`,borderRadius:8,padding:"10px 14px",marginBottom:14,fontSize:12,color:"#ff9b9b"}}>{completionErr}</div>}
 
       {/* ─── 2. PRODUKTION ─── */}
       <div style={{borderTop:`1px solid ${T.brdL}`,paddingTop:16,marginBottom:22}}>
         <div style={{fontSize:10,fontWeight:700,color:T.dim,textTransform:"uppercase",letterSpacing:".1em",marginBottom:14}}>2 · Produktion</div>
-
-        <div style={{marginBottom:16}}>
-          {selected.status==="planned"&&<Btn primary disabled={acting} onClick={()=>doAction("in_progress",{started_at:new Date().toISOString()})}>▶ Start batch</Btn>}
-          {selected.status==="in_progress"&&<div style={{display:"flex",gap:10,alignItems:"center"}}>
-            <Btn primary disabled={acting} onClick={tryComplete}>✓ Afslut batch</Btn>
-            <span style={{fontSize:12,color:T.dim}}>Registrér råvarer og faktisk antal nedenfor</span>
-          </div>}
-          {selected.status==="completed"&&<div style={{display:"flex",alignItems:"center",gap:8,fontSize:13,color:T.ok}}>✓ Batch afsluttet {selected.completed_at&&<span style={{fontSize:11,color:T.dim}}>{selected.completed_at.slice(0,10)}</span>}</div>}
-        </div>
-
-        {selected.status==="in_progress"&&<>
-          <div style={{display:"flex",alignItems:"center",marginBottom:8}}>
-            <div style={{fontSize:11,fontWeight:600,color:T.mid}}>Tilføj råvare-lot</div>
-            <Tip text="Et lot er en specifik leverance af en råvare med lottnummer og mængde. Opret lots under Lager → Modtag varer. Kun lots tilknyttet denne opskrifts råvarer vises her."/>
-          </div>
-          {activeLots.filter(l=>(selected.recipe_snapshot?.bom||[]).map(b=>b.itemId).includes(l.item_id)).length===0
-            ?<div style={{fontSize:12,color:T.warn,marginBottom:16,padding:"8px 12px",background:T.input,borderRadius:8}}>Ingen relevante lots fundet endnu. Opret et lot i Lager for at registrere råvareforbrug.</div>
-            :<div style={{marginBottom:16}}>
-              <div style={{display:"flex",gap:10,alignItems:"flex-end",flexWrap:"wrap"}}>
-                <div style={{flex:"2 1 180px"}}>
-                  <div style={{fontSize:11,color:T.dim,marginBottom:4,fontWeight:600,letterSpacing:".04em",textTransform:"uppercase"}}>Lot</div>
-                  <select value={newLot.lotId} onChange={e=>setNewLot({...newLot,lotId:e.target.value})} style={{width:"100%"}}>
-                    <option value="">Vælg lot...</option>
-                    {activeLots.filter(l=>(selected.recipe_snapshot?.bom||[]).map(b=>b.itemId).includes(l.item_id)).map(l=><option key={l.id} value={l.id}>{l.lot_number} · {data.inventory.find(i=>i.id===l.item_id)?.name||l.item_id} · {l.qty_remaining} {l.unit} tilbage</option>)}
-                  </select>
-                </div>
-                <div style={{flex:"1 1 100px"}}>
-                  <div style={{fontSize:11,color:T.dim,marginBottom:4,fontWeight:600,letterSpacing:".04em",textTransform:"uppercase"}}>Mængde{activeLots.find(l=>l.id===newLot.lotId)?.unit&&<span style={{color:T.acc,marginLeft:4,textTransform:"none"}}>({activeLots.find(l=>l.id===newLot.lotId).unit})</span>}</div>
-                  <input type="number" step=".01" min="0" value={newLot.qtyUsed} onChange={e=>setNewLot({...newLot,qtyUsed:e.target.value})} style={{width:"100%"}}/>
-                </div>
-                <Btn primary disabled={savingLot||!newLot.lotId||!newLot.qtyUsed} onClick={addLotUsage} style={{padding:"10px 18px"}}>{savingLot?"Gemmer...":"+ Registrér lot"}</Btn>
-              </div>
-            </div>
-          }
-        </>}
 
         <div style={{display:"flex",alignItems:"center",gap:10}}>
           <div style={{display:"flex",alignItems:"center"}}>
@@ -527,7 +506,8 @@ function Batches({data,update,supabase,batchNav,setBatchNav}){
             const itemUsage=lotUsage.filter(u=>(u.item_id||u.lots?.item_id)===b.itemId)
             const usedTotal=itemUsage.reduce((s,u)=>s+(parseFloat(u.qty_used)||0),0)
             const hasUsage=itemUsage.length>0
-            return<div key={b.itemId} style={{marginBottom:12,padding:"10px 12px",background:T.input,borderRadius:8,border:`1px solid ${hasUsage?`${T.ok}44`:`${T.warn}44`}`}}>
+            const openLotFor=()=>{if(selected.status!=="in_progress")return;setLotItemId(b.itemId);setNewLot({lotId:"",qtyUsed:""});setShowLotModal(true)}
+            return<div key={b.itemId} onClick={openLotFor} style={{marginBottom:12,padding:"10px 12px",background:T.input,borderRadius:8,border:`1px solid ${hasUsage?`${T.ok}44`:`${T.warn}44`}`,cursor:selected.status==="in_progress"?"pointer":"default"}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:hasUsage?8:0}}>
                 <div style={{display:"flex",alignItems:"center",gap:8}}>
                   <span style={{fontSize:14,color:hasUsage?T.ok:T.warn}}>{hasUsage?"✓":"⚠"}</span>
@@ -536,7 +516,7 @@ function Batches({data,update,supabase,batchNav,setBatchNav}){
                     <div style={{fontSize:11,color:T.dim}}>Behov: {b.qty} {b.unit}{usedTotal>0&&<span style={{color:T.acc,marginLeft:8}}>Registreret: {usedTotal} {b.unit}</span>}</div>
                   </div>
                 </div>
-                {selected.status==="in_progress"&&<Btn small primary onClick={()=>{setLotItemId(b.itemId);setNewLot({lotId:"",qtyUsed:""});setShowLotModal(true)}}>+ Registrér</Btn>}
+                {selected.status==="in_progress"&&<Btn small primary onClick={e=>{e.stopPropagation();openLotFor()}}>+ Registrér</Btn>}
               </div>
               {itemUsage.length>0&&<div style={{paddingTop:6,borderTop:`1px solid ${T.brdL}`}}>
                 {itemUsage.map(u=><div key={u.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:12,padding:"3px 0"}}>
