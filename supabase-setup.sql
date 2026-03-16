@@ -149,6 +149,14 @@ create table if not exists batches (
   completed_at     timestamptz,
   operator         text,
   notes            text,
+  -- Batchlog-skabelon fields (SOP-03 compliance)
+  blanching_temp      numeric,
+  blanching_time_secs integer,
+  oil_temp            numeric,
+  filtration_ok       boolean,
+  best_before         date,
+  sensory_eval        jsonb,
+  operator_confirmed  boolean   not null default false,
   created_at       timestamptz not null default now(),
   updated_at       timestamptz not null default now()
 );
@@ -678,3 +686,18 @@ create trigger orders_updated_at
   before update on orders
   for each row
   execute function update_updated_at();
+
+
+-- ═══════════════════════════════════════════
+-- DRYP Phase 3: Batch Log Hardening
+-- Adds batchlog-skabelon fields required by
+-- SOP-03 for compliance-ready batch records.
+-- Run on live DB where batches table already exists.
+-- ═══════════════════════════════════════════
+ALTER TABLE batches ADD COLUMN IF NOT EXISTS blanching_temp numeric;
+ALTER TABLE batches ADD COLUMN IF NOT EXISTS blanching_time_secs integer;
+ALTER TABLE batches ADD COLUMN IF NOT EXISTS oil_temp numeric;
+ALTER TABLE batches ADD COLUMN IF NOT EXISTS filtration_ok boolean;
+ALTER TABLE batches ADD COLUMN IF NOT EXISTS best_before date;
+ALTER TABLE batches ADD COLUMN IF NOT EXISTS sensory_eval jsonb;
+ALTER TABLE batches ADD COLUMN IF NOT EXISTS operator_confirmed boolean not null default false;

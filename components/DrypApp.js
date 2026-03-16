@@ -352,6 +352,14 @@ function Batches({data,update,supabase,batchNav,setBatchNav,refreshStock}){
   const[showLotModal,setShowLotModal]=useState(false)
   const[lotItemId,setLotItemId]=useState("")
   const[completionErr,setCompletionErr]=useState("")
+  // Batchlog-skabelon fields
+  const[blanchTemp,setBlanchTemp]=useState("")
+  const[blanchTime,setBlanchTime]=useState("")
+  const[oilTemp,setOilTemp]=useState("")
+  const[filtrationOk,setFiltrationOk]=useState(false)
+  const[bestBefore,setBestBefore]=useState("")
+  const[sensory,setSensory]=useState({color:"",taste:"",smell:"",approved:false})
+  const[opConfirmed,setOpConfirmed]=useState(false)
 
   const refresh=()=>{if(!supabase)return;getBatches(supabase).then(rows=>{if(rows&&rows.length>0)setSqlBatches(rows)}).catch(()=>{})}
   useEffect(()=>{refresh()},[supabase])
@@ -369,6 +377,13 @@ function Batches({data,update,supabase,batchNav,setBatchNav,refreshStock}){
     setActualQty(sel?.actual_qty??'')
     setProcessLoss(sel?.process_loss_qty??'')
     setLossNotes(sel?.loss_notes??'')
+    setBlanchTemp(sel?.blanching_temp??'')
+    setBlanchTime(sel?.blanching_time_secs??'')
+    setOilTemp(sel?.oil_temp??'')
+    setFiltrationOk(!!sel?.filtration_ok)
+    setBestBefore(sel?.best_before??'')
+    setSensory(sel?.sensory_eval||{color:"",taste:"",smell:"",approved:false})
+    setOpConfirmed(!!sel?.operator_confirmed)
     getActiveLots(supabase).then(setActiveLots).catch(()=>{})
     getBatchLotUsage(supabase,selectedId).then(setLotUsage).catch(()=>{})
   },[supabase,selectedId])
@@ -395,13 +410,22 @@ function Batches({data,update,supabase,batchNav,setBatchNav,refreshStock}){
     if(!qty){setCompletionErr("Angiv faktisk output før afslutning");return}
     const loss=parseFloat(processLoss)||0
     if(loss<0){setCompletionErr("Proces-spild kan ikke være negativt");return}
+    // Batchlog-skabelon validation (SOP-03 compliance)
+    const missing=[]
+    if(!parseFloat(blanchTemp))missing.push("Blancheringstemperatur")
+    if(!parseFloat(oilTemp))missing.push("Olietemperatur ved blend")
+    if(!filtrationOk)missing.push("Filtrering godkendt")
+    if(!bestBefore)missing.push("Best-before dato")
+    if(!sensory.approved)missing.push("Sensorisk evaluering godkendt")
+    if(!opConfirmed)missing.push("Operatørbekræftelse")
+    if(missing.length>0){setCompletionErr(`Udfyld før afslutning: ${missing.join(", ")}`);return}
     setActing(true)
     try{
       // 1. Record produce movement BEFORE marking batch completed — only saleable output
       const{data:{user:u}}=await supabase.auth.getUser()
       await recordMovement(supabase,{user_id:u.id,item_id:selected.recipe_id,batch_id:selectedId,movement_type:"produce",qty,unit:"stk",reference:selected.batch_number,notes:loss>0?`Batch afsluttet (spild: ${loss})`:"Batch afsluttet"})
-      // 2. Now safe to mark completed — include process loss fields
-      await updateBatchStatus(supabase,selectedId,"completed",{completed_at:new Date().toISOString(),actual_qty:qty,process_loss_qty:loss||null,loss_notes:lossNotes.trim()||null})
+      // 2. Now safe to mark completed — include process loss + batchlog fields
+      await updateBatchStatus(supabase,selectedId,"completed",{completed_at:new Date().toISOString(),actual_qty:qty,process_loss_qty:loss||null,loss_notes:lossNotes.trim()||null,blanching_temp:parseFloat(blanchTemp)||null,blanching_time_secs:parseInt(blanchTime)||null,oil_temp:parseFloat(oilTemp)||null,filtration_ok:filtrationOk,best_before:bestBefore||null,sensory_eval:sensory,operator_confirmed:opConfirmed})
       // 3. Event is non-critical — log failure but don't block
       try{await appendEvent(supabase,{batch_id:selectedId,user_id:u.id,event_type:"completed",payload:{actual_qty:qty,process_loss_qty:loss,unit:"stk"},created_by:u.email||u.id})}catch(evErr){console.error("[DRYP] batch event failed (non-critical):",evErr)}
       refresh();if(refreshStock)refreshStock();setSelectedId(null)
@@ -417,6 +441,12 @@ function Batches({data,update,supabase,batchNav,setBatchNav,refreshStock}){
     setQtyStatus("Gemmer...")
     try{await updateBatchStatus(supabase,selectedId,selected.status,{actual_qty:n});setQtyStatus("Gemt ✓");setTimeout(()=>setQtyStatus(""),2000)}
     catch(err){console.error("[DRYP] saveActualQty failed:",err);setQtyStatus("Fejl");setTimeout(()=>setQtyStatus(""),3000)}
+  }
+
+  const saveBatchField=async(updates)=>{
+    if(!supabase||!selectedId||selected?.status==="completed")return
+    try{await updateBatchStatus(supabase,selectedId,selected.status,updates);refresh()}
+    catch(err){console.error("[DRYP] saveBatchField failed:",err)}
   }
 
   const addLotUsage=async()=>{
@@ -554,10 +584,60 @@ function Batches({data,update,supabase,batchNav,setBatchNav,refreshStock}){
         })()}
       </div>
 
-      {/* ─── 3. SPORBARHED — per BOM item ─── */}
+      {/* ─── 3. PRODUKTIONSPARAMETRE (SOP-03 batchlog) ─── */}
+      <div style={{borderTop:`1px solid ${T.brdL}`,paddingTop:16,marginBottom:22}}>
+        <div style={{display:"flex",alignItems:"center",marginBottom:14}}>
+          <div style={{fontSize:10,fontWeight:700,color:T.dim,textTransform:"uppercase",letterSpacing:".1em"}}>3 · Produktionsparametre</div>
+          <Tip text="Kritiske produktionsparametre jf. SOP-03 (Blanch-Blend-Filter-Fyld). Alle felter markeret med * er påkrævet før batch kan afsluttes."/>
+        </div>
+
+        {selected.status==="completed"
+          ?<div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:"8px 24px",fontSize:12,marginBottom:12}}>
+            {[["Blanchering",`${selected.blanching_temp||"—"}°C${selected.blanching_time_secs?` / ${selected.blanching_time_secs} sek`:""}`],["Olietemperatur",`${selected.oil_temp||"—"}°C`],["Filtrering",selected.filtration_ok?"Godkendt ✓":"—"],["Best-before",selected.best_before||"—"],["Sensorisk",selected.sensory_eval?.approved?"Godkendt ✓":"—"],["Operatør bekræftet",selected.operator_confirmed?"Ja ✓":"—"]].map(([k,v])=><div key={k}><div style={{fontSize:10,color:T.dim,textTransform:"uppercase",letterSpacing:".05em",marginBottom:3}}>{k}</div><div style={{fontWeight:500}}>{v}</div></div>)}
+            {selected.sensory_eval&&(selected.sensory_eval.color||selected.sensory_eval.taste||selected.sensory_eval.smell)&&<div style={{gridColumn:"1/-1",fontSize:12,color:T.mid,marginTop:4}}>
+              {selected.sensory_eval.color&&<span>Farve: {selected.sensory_eval.color}</span>}
+              {selected.sensory_eval.taste&&<span style={{marginLeft:12}}>Smag: {selected.sensory_eval.taste}</span>}
+              {selected.sensory_eval.smell&&<span style={{marginLeft:12}}>Lugt: {selected.sensory_eval.smell}</span>}
+            </div>}
+          </div>
+
+          :<>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:"0 16px",marginBottom:8}}>
+              <Field label="Blancheringstemperatur (°C) *" tip="CCP-1: Temp ≥ 95°C i minimum 15 sek. Sikrer inaktivering af patogener."><input type="number" step=".1" value={blanchTemp} onChange={e=>setBlanchTemp(e.target.value)} onBlur={()=>saveBatchField({blanching_temp:parseFloat(blanchTemp)||null})} placeholder="f.eks. 97"/></Field>
+              <Field label="Blancheringstid (sek)" tip="Anbefalet 15–30 sek. Soft-krav — batch kan afsluttes uden."><input type="number" value={blanchTime} onChange={e=>setBlanchTime(e.target.value)} onBlur={()=>saveBatchField({blanching_time_secs:parseInt(blanchTime)||null})} placeholder="f.eks. 20"/></Field>
+              <Field label="Olietemperatur ved blend (°C) *" tip="CCP-2: 80–85°C. Reducerer mikrobiel belastning."><input type="number" step=".1" value={oilTemp} onChange={e=>setOilTemp(e.target.value)} onBlur={()=>saveBatchField({oil_temp:parseFloat(oilTemp)||null})} placeholder="f.eks. 83"/></Field>
+            </div>
+
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 16px",marginBottom:8}}>
+              <Field label="Best-before dato *" tip="Holdbarhedsdato for dette batch. Påføres etiket."><input type="date" value={bestBefore} onChange={e=>{setBestBefore(e.target.value);saveBatchField({best_before:e.target.value||null})}}/></Field>
+              <div style={{display:"flex",alignItems:"flex-end",paddingBottom:18}}>
+                <Check checked={filtrationOk} onChange={v=>{setFiltrationOk(v);saveBatchField({filtration_ok:v})}} label="Filtrering godkendt (ingen synlige partikler) *"/>
+              </div>
+            </div>
+
+            <div style={{background:T.input,borderRadius:8,padding:"12px 14px",marginBottom:12,border:`1px solid ${sensory.approved?`${T.ok}44`:T.brdL}`}}>
+              <div style={{fontSize:11,fontWeight:700,color:T.mid,textTransform:"uppercase",letterSpacing:".05em",marginBottom:10}}>Sensorisk evaluering *</div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:"0 12px",marginBottom:8}}>
+                <Field label="Farve"><input value={sensory.color} onChange={e=>{const s={...sensory,color:e.target.value};setSensory(s)}} onBlur={()=>saveBatchField({sensory_eval:sensory})} placeholder="f.eks. dyb grøn"/></Field>
+                <Field label="Smag"><input value={sensory.taste} onChange={e=>{const s={...sensory,taste:e.target.value};setSensory(s)}} onBlur={()=>saveBatchField({sensory_eval:sensory})} placeholder="f.eks. frisk, ren"/></Field>
+                <Field label="Lugt"><input value={sensory.smell} onChange={e=>{const s={...sensory,smell:e.target.value};setSensory(s)}} onBlur={()=>saveBatchField({sensory_eval:sensory})} placeholder="f.eks. OK"/></Field>
+              </div>
+              <Check checked={sensory.approved} onChange={v=>{const s={...sensory,approved:v};setSensory(s);saveBatchField({sensory_eval:s})}} label="Sensorisk godkendt"/>
+            </div>
+
+            <div style={{background:T.accDD,borderRadius:8,padding:"10px 14px",border:`1px solid ${opConfirmed?`${T.ok}44`:`${T.warn}44`}`}}>
+              <Check checked={opConfirmed} onChange={v=>{setOpConfirmed(v);saveBatchField({operator_confirmed:v})}} label="Jeg bekræfter at alle parametre er korrekt registreret *"/>
+            </div>
+
+            {!parseInt(blanchTime)&&parseFloat(blanchTemp)>0&&<div style={{fontSize:11,color:T.warn,marginTop:8}}>Blancheringstid er ikke udfyldt — anbefalet 15–30 sek.</div>}
+          </>
+        }
+      </div>
+
+      {/* ─── 4. SPORBARHED — per BOM item ─── */}
       <div style={{borderTop:`1px solid ${T.brdL}`,paddingTop:16,marginBottom:16}}>
         <div style={{display:"flex",alignItems:"center",marginBottom:12}}>
-          <div style={{fontSize:10,fontWeight:700,color:T.dim,textTransform:"uppercase",letterSpacing:".1em"}}>3 · Sporbarhed</div>
+          <div style={{fontSize:10,fontWeight:700,color:T.dim,textTransform:"uppercase",letterSpacing:".1em"}}>4 · Sporbarhed</div>
           <Tip text="Sporbarhed dokumenterer hvilke råvarelots der gik ind i denne batch. Påkrævet ved fødevarekontrol og tilbagekaldelser."/>
         </div>
 
@@ -583,7 +663,7 @@ function Batches({data,update,supabase,batchNav,setBatchNav,refreshStock}){
               </div>
               {itemUsage.length>0&&<div style={{paddingTop:6,borderTop:`1px solid ${T.brdL}`}}>
                 {itemUsage.map(u=><div key={u.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:12,padding:"3px 0"}}>
-                  <span style={{fontWeight:500,color:T.mid}}>{u.lots?.lot_number||u.lot_id}</span>
+                  <span style={{fontWeight:500,color:T.mid}}>{u.lots?.lot_number||u.lot_id}{u.lots?.expiry_date&&<span style={{color:T.dim,marginLeft:6,fontSize:11}}>Udløb: {u.lots.expiry_date}</span>}{u.lots?.supplier&&<span style={{color:T.dim,marginLeft:6,fontSize:11}}>({u.lots.supplier})</span>}</span>
                   <span style={{fontFamily:T.fm,color:T.acc}}>{u.qty_used} {u.unit}</span>
                 </div>)}
               </div>}
