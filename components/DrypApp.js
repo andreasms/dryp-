@@ -8,6 +8,8 @@ import { appendEvent } from '@/lib/db/batchEvents'
 import { createHaccpLog, getHaccpLogs, updateHaccpLog, deleteHaccpLog } from '@/lib/db/haccpLogs'
 import { getWikiPages, createWikiPage, updateWikiPage, deleteWikiPage } from '@/lib/db/wikiPages'
 import { getTeamMessages, sendTeamMessage } from '@/lib/db/teamMessages'
+import { getCustomers, createCustomer, updateCustomer, deleteCustomer } from '@/lib/db/customers'
+import { getOrders, createOrder, updateOrder, deleteOrder } from '@/lib/db/orders'
 
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,6)
 const today=()=>new Date().toISOString().slice(0,10)
@@ -129,13 +131,14 @@ export default function DrypApp({data,update,save,user,onLogout,supabase,saveErr
 // ═══ DASHBOARD — cleaner, priority-focused ═══
 function Dashboard({data,supabase,setPage,setBatchNav,rawStock={}}){
   const mo=today().slice(0,7);const prods=data.productions.filter(p=>p.date?.startsWith(mo))
-  const rev=data.orders.filter(o=>o.date?.startsWith(mo)).reduce((s,o)=>s+(parseFloat(o.price)||0)*(parseInt(o.qty)||0),0)
   const low=data.inventory.filter(i=>getStock(i,rawStock)<i.min)
   const ccpOk=prods.filter(p=>p.ccp1Ok&&p.ccp2Ok).length
   const openDevs=(data.haccp?.deviations||[]).filter(d=>!d.closedDate)
-  const pendingOrders=(data.orders||[]).filter(o=>!["leveret","fakturaklar","faktureret"].includes(o.status))
   const[sqlBatches,setSqlBatches]=useState(null)
-  useEffect(()=>{if(!supabase)return;getBatches(supabase).then(rows=>{if(rows)setSqlBatches(rows)}).catch(()=>{})},[supabase])
+  const[sqlOrders,setSqlOrders]=useState([])
+  useEffect(()=>{if(!supabase)return;getBatches(supabase).then(rows=>{if(rows)setSqlBatches(rows)}).catch(()=>{});getOrders(supabase).then(setSqlOrders).catch(()=>{})},[supabase])
+  const rev=sqlOrders.filter(o=>o.order_date?.startsWith(mo)).reduce((s,o)=>s+(parseFloat(o.price)||0)*(parseInt(o.qty)||0),0)
+  const pendingOrders=sqlOrders.filter(o=>!["leveret","fakturaklar","faktureret"].includes(o.status))
   const activeBatches=(sqlBatches||[]).filter(b=>b.status==="in_progress")
   const plannedCount=(sqlBatches||[]).filter(b=>b.status==="planned").length
   return<div style={{maxWidth:1100}}>
@@ -1053,38 +1056,58 @@ function Planning({data,update,rawStock={}}){
   </div>
 }
 
-function Customers({data,update}){
+function Customers({data,supabase,user}){
   const[tab,setTab]=useState("customers");const[show,setShow]=useState(false);const[ft,setFt]=useState("c");const[form,setForm]=useState({})
+  const[customers,setCustomers]=useState([]);const[orders,setOrders]=useState([]);const[loading,setLoading]=useState(true)
+  const[sqlBatches,setSqlBatches]=useState([])
   const recipes=(data.recipes||[]).filter(r=>r.active)
-  const doSave=()=>{if(ft==="c")update("customers",p=>[form,...p.filter(c=>c.id!==form.id)]);else update("orders",p=>[form,...p.filter(o=>o.id!==form.id)]);setShow(false)}
-  const orderStatusDa={ny:"Ny",bekraeftet:"Bekræftet",produktion:"Klar til produktion",levering:"Klar til levering",leveret:"Leveret",fakturaklar:"Klar til fakturering",faktureret:"Faktureret",bestilt:"Bestilt",pakket:"Pakket"}
-  const orderStatusC={ny:T.dim,bekraeftet:T.acc,produktion:T.warn,levering:T.warn,leveret:T.ok,fakturaklar:T.acc,faktureret:T.dim,bestilt:T.warn,pakket:T.acc}
+  const reload=async()=>{if(!supabase)return;try{const[c,o,b]=await Promise.all([getCustomers(supabase),getOrders(supabase),getBatches(supabase)]);setCustomers(c||[]);setOrders(o||[]);setSqlBatches(b||[])}catch(e){console.error('[DRYP] customers/orders load failed:',e)}finally{setLoading(false)}}
+  useEffect(()=>{reload()},[supabase])
+  const doSave=async()=>{
+    try{
+      if(ft==="c"){
+        const payload={name:form.name,type:form.type,contact:form.contact||null,email:form.email||null,phone:form.phone||null,status:form.status,notes:form.notes||null,updated_by:user?.id||null}
+        if(form._isNew){await createCustomer(supabase,{...payload,created_by:user?.id||null})}
+        else{await updateCustomer(supabase,form.id,payload)}
+      }else{
+        const payload={customer_id:form.customer_id||null,order_date:form.order_date||null,delivery_date:form.delivery_date||null,product:form.product||null,qty:parseInt(form.qty)||null,price:parseFloat(form.price)||null,batch_ref:form.batch_ref||null,status:form.status,customer_ref:form.customer_ref||null,internal_note:form.internal_note||null,customer_note:form.customer_note||null,updated_by:user?.id||null}
+        if(form._isNew){await createOrder(supabase,{...payload,created_by:user?.id||null})}
+        else{await updateOrder(supabase,form.id,payload)}
+      }
+      setShow(false);await reload()
+    }catch(e){alert("Fejl: "+(e.message||"Ukendt fejl"))}
+  }
+  const orderStatusDa={ny:"Ny",bekraeftet:"Bekræftet",produktion:"Klar til produktion",levering:"Klar til levering",leveret:"Leveret",fakturaklar:"Klar til fakturering",faktureret:"Faktureret"}
+  const orderStatusC={ny:T.dim,bekraeftet:T.acc,produktion:T.warn,levering:T.warn,leveret:T.ok,fakturaklar:T.acc,faktureret:T.dim}
   const normalizeStatus=(s)=>({bestilt:"bekraeftet",pakket:"levering"}[s]||s)
-  const newOrder=()=>{setFt("o");setForm({id:uid(),customerId:data.customers[0]?.id||"",date:today(),deliveryDate:"",product:recipes[0]?.name||"",qty:"",price:"",batchId:"",status:"ny",customerRef:"",internalNote:"",customerNote:""});setShow(true)}
-  const newCustomer=()=>{setFt("c");setForm({id:uid(),name:"",type:"restaurant",contact:"",email:"",phone:"",status:"lead",notes:"",created:today()});setShow(true)}
+  const newOrder=()=>{setFt("o");setForm({_isNew:true,customer_id:customers[0]?.id||"",order_date:today(),delivery_date:"",product:recipes[0]?.name||"",qty:"",price:"",batch_ref:"",status:"ny",customer_ref:"",internal_note:"",customer_note:""});setShow(true)}
+  const newCustomer=()=>{setFt("c");setForm({_isNew:true,name:"",type:"restaurant",contact:"",email:"",phone:"",status:"lead",notes:""});setShow(true)}
+  const handleDeleteCustomer=async(c)=>{if(!confirm(`Slet "${c.name}"?`))return;try{await deleteCustomer(supabase,c.id);await reload()}catch(e){alert("Fejl: "+(e.message||"Ukendt fejl"))}}
+  const handleDeleteOrder=async(o)=>{const cust=customers.find(c=>c.id===o.customer_id);if(!confirm(`Slet ordre for ${cust?.name||"ukendt"}?`))return;try{await deleteOrder(supabase,o.id);await reload()}catch(e){alert("Fejl: "+(e.message||"Ukendt fejl"))}}
   const doneStatuses=["leveret","fakturaklar","faktureret"]
-  const sorted=[...data.orders].sort((a,b)=>{
+  const sorted=[...orders].sort((a,b)=>{
     const aDone=doneStatuses.includes(a.status)?1:0
     const bDone=doneStatuses.includes(b.status)?1:0
     if(aDone!==bDone)return aDone-bDone
-    const aDate=a.deliveryDate||a.date||""
-    const bDate=b.deliveryDate||b.date||""
+    const aDate=a.delivery_date||a.order_date||""
+    const bDate=b.delivery_date||b.order_date||""
     return aDone?bDate.localeCompare(aDate):aDate.localeCompare(bDate)
   })
+  if(loading)return<div style={{textAlign:"center",padding:60,color:T.dim}}>Indlæser kunder og ordrer...</div>
   return<div style={{maxWidth:1060}}>
     <Tabs tabs={[["customers","Kunder"],["orders","Ordrer"]]} active={tab} onChange={setTab} right={<Btn primary small onClick={()=>{if(tab==="customers")newCustomer();else newOrder()}}><Plus s={11} c={T.bg}/> {tab==="customers"?"Ny kunde":"Ny ordre"}</Btn>}/>
 
     {/* ─── KUNDER ─── */}
-    {tab==="customers"&&(data.customers.length===0?<Empty text="Ingen kunder endnu" action="Tilføj kunde" onAction={newCustomer}/>:data.customers.map(c=><Card key={c.id} style={{marginBottom:6,padding:12}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><div style={{display:"flex",alignItems:"center",gap:10}}><div style={{width:32,height:32,borderRadius:"50%",background:T.accD,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:700,color:T.acc}}>{c.name?.charAt(0)?.toUpperCase()}</div><div><div style={{fontSize:13,fontWeight:500}}>{c.name}</div><div style={{fontSize:12,color:T.dim}}>{c.type}{c.email&&` · ${c.email}`}{c.phone&&` · ${c.phone}`}</div></div></div><div style={{display:"flex",gap:6,flexShrink:0}}><Badge c={c.status==="aktiv"?T.ok:c.status==="lead"?T.acc:T.dim}>{c.status}</Badge><Btn small onClick={()=>{setFt("c");setForm(c);setShow(true)}}>Rediger</Btn><Btn small danger onClick={()=>{if(confirm(`Slet "${c.name}"?`))update("customers",p=>p.filter(x=>x.id!==c.id))}}>Slet</Btn></div></div></Card>))}
+    {tab==="customers"&&(customers.length===0?<Empty text="Ingen kunder endnu" action="Tilføj kunde" onAction={newCustomer}/>:customers.map(c=><Card key={c.id} style={{marginBottom:6,padding:12}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><div style={{display:"flex",alignItems:"center",gap:10}}><div style={{width:32,height:32,borderRadius:"50%",background:T.accD,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:700,color:T.acc}}>{c.name?.charAt(0)?.toUpperCase()}</div><div><div style={{fontSize:13,fontWeight:500}}>{c.name}</div><div style={{fontSize:12,color:T.dim}}>{c.type}{c.email&&` · ${c.email}`}{c.phone&&` · ${c.phone}`}</div></div></div><div style={{display:"flex",gap:6,flexShrink:0}}><Badge c={c.status==="aktiv"?T.ok:c.status==="lead"?T.acc:T.dim}>{c.status}</Badge><Btn small onClick={()=>{setFt("c");setForm({...c});setShow(true)}}>Rediger</Btn><Btn small danger onClick={()=>handleDeleteCustomer(c)}>Slet</Btn></div></div></Card>))}
 
     {/* ─── ORDRER ─── */}
-    {tab==="orders"&&(data.orders.length===0?<Empty text="Ingen ordrer endnu" action="Opret ordre" onAction={newOrder}/>:<div>
+    {tab==="orders"&&(orders.length===0?<Empty text="Ingen ordrer endnu" action="Opret ordre" onAction={newOrder}/>:<div>
       {sorted.map(o=>{
-        const cust=data.customers.find(c=>c.id===o.customerId)
+        const cust=customers.find(c=>c.id===o.customer_id)
         const total=(parseFloat(o.price)||0)*(parseInt(o.qty)||0)
         const stLabel=orderStatusDa[o.status]||o.status
         const stColor=orderStatusC[o.status]||T.dim
-        const isUrgent=!doneStatuses.includes(o.status)&&o.deliveryDate&&o.deliveryDate<=addDays(today(),2)
+        const isUrgent=!doneStatuses.includes(o.status)&&o.delivery_date&&o.delivery_date<=addDays(today(),2)
         return<Card key={o.id} style={{marginBottom:6,padding:"12px 14px",borderLeft:`4px solid ${stColor}`}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
             <div style={{flex:1,minWidth:0}}>
@@ -1095,16 +1118,17 @@ function Customers({data,update}){
               </div>
               <div style={{fontSize:12,color:T.dim,marginTop:3}}>
                 {o.product} · {o.qty} stk{total>0&&<span style={{color:T.mid,marginLeft:6}}>{fk(Math.round(total))}</span>}
-                {o.deliveryDate&&<span style={{marginLeft:8}}>Levering: <span style={{color:isUrgent?T.red:T.txt,fontWeight:isUrgent?600:400}}>{o.deliveryDate}</span></span>}
-                {!o.deliveryDate&&<span style={{marginLeft:8,color:T.warn}}>Ingen leveringsdato</span>}
+                {o.delivery_date&&<span style={{marginLeft:8}}>Levering: <span style={{color:isUrgent?T.red:T.txt,fontWeight:isUrgent?600:400}}>{o.delivery_date}</span></span>}
+                {!o.delivery_date&&<span style={{marginLeft:8,color:T.warn}}>Ingen leveringsdato</span>}
               </div>
               <div style={{fontSize:11,color:T.dim,marginTop:2}}>
-                Bestilt {o.date}{o.customerRef&&<span style={{marginLeft:8}}>Ref: {o.customerRef}</span>}{o.batchId&&<span style={{marginLeft:8}}>Batch: {o.batchId}</span>}
+                Bestilt {o.order_date}{o.customer_ref&&<span style={{marginLeft:8}}>Ref: {o.customer_ref}</span>}{o.batch_ref&&<span style={{marginLeft:8}}>Batch: {o.batch_ref}</span>}
               </div>
-              {o.internalNote&&<div style={{fontSize:11,color:T.warn,marginTop:3,fontStyle:"italic"}}>Intern: {o.internalNote}</div>}
+              {o.internal_note&&<div style={{fontSize:11,color:T.warn,marginTop:3,fontStyle:"italic"}}>Intern: {o.internal_note}</div>}
             </div>
             <div style={{display:"flex",gap:6,flexShrink:0,marginLeft:12}}>
-              <Btn small onClick={()=>{setFt("o");setForm({customerRef:"",internalNote:"",customerNote:"",deliveryDate:"",...o,status:normalizeStatus(o.status)});setShow(true)}}>Rediger</Btn>
+              <Btn small onClick={()=>{setFt("o");setForm({...o,status:normalizeStatus(o.status)});setShow(true)}}>Rediger</Btn>
+              <Btn small danger onClick={()=>handleDeleteOrder(o)}>Slet</Btn>
             </div>
           </div>
         </Card>
@@ -1116,26 +1140,26 @@ function Customers({data,update}){
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 16px"}}>
         <Field label="Navn"><input value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/></Field>
         <Field label="Type"><select value={form.type} onChange={e=>setForm({...form,type:e.target.value})}><option value="restaurant">Restaurant</option><option value="delikatesse">Delikatesse</option><option value="detail">Detail</option><option value="engros">Engros</option></select></Field>
-        <Field label="Kontakt"><input value={form.contact} onChange={e=>setForm({...form,contact:e.target.value})}/></Field>
-        <Field label="Email"><input value={form.email} onChange={e=>setForm({...form,email:e.target.value})}/></Field>
-        <Field label="Telefon"><input value={form.phone} onChange={e=>setForm({...form,phone:e.target.value})}/></Field>
+        <Field label="Kontakt"><input value={form.contact||""} onChange={e=>setForm({...form,contact:e.target.value})}/></Field>
+        <Field label="Email"><input value={form.email||""} onChange={e=>setForm({...form,email:e.target.value})}/></Field>
+        <Field label="Telefon"><input value={form.phone||""} onChange={e=>setForm({...form,phone:e.target.value})}/></Field>
         <Field label="Status"><select value={form.status} onChange={e=>setForm({...form,status:e.target.value})}><option value="lead">Lead</option><option value="prøve">Prøve sendt</option><option value="aktiv">Aktiv</option><option value="inaktiv">Inaktiv</option></select></Field>
       </div>
-      <Field label="Noter"><textarea value={form.notes} onChange={e=>setForm({...form,notes:e.target.value})}/></Field>
+      <Field label="Noter"><textarea value={form.notes||""} onChange={e=>setForm({...form,notes:e.target.value})}/></Field>
       <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn onClick={()=>setShow(false)}>Annuller</Btn><Btn primary onClick={doSave}>Gem kunde</Btn></div>
     </Modal>}
 
     {/* ─── ORDRE MODAL ─── */}
-    {show&&ft==="o"&&<Modal title={form.customerId?`Ordre · ${data.customers.find(c=>c.id===form.customerId)?.name||""}`:"Ny ordre"} onClose={()=>setShow(false)} wide>
+    {show&&ft==="o"&&<Modal title={form.customer_id?`Ordre · ${customers.find(c=>c.id===form.customer_id)?.name||""}`:"Ny ordre"} onClose={()=>setShow(false)} wide>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:"0 16px"}}>
-        <Field label="Kunde"><select value={form.customerId} onChange={e=>setForm({...form,customerId:e.target.value})}><option value="">Vælg kunde...</option>{data.customers.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></Field>
-        <Field label="Ordredato"><input type="date" value={form.date} onChange={e=>setForm({...form,date:e.target.value})}/></Field>
-        <Field label="Ønsket leveringsdato" tip="Hvornår forventer kunden levering? Bruges til planlægning."><input type="date" value={form.deliveryDate||""} onChange={e=>setForm({...form,deliveryDate:e.target.value})}/></Field>
-        <Field label="Produkt"><select value={form.product} onChange={e=>setForm({...form,product:e.target.value})}>{recipes.map(r=><option key={r.id}>{r.name}</option>)}</select></Field>
-        <Field label="Antal"><input type="number" value={form.qty} onChange={e=>setForm({...form,qty:e.target.value})}/></Field>
-        <Field label="Pris pr. stk"><input type="number" value={form.price} onChange={e=>setForm({...form,price:e.target.value})}/></Field>
-        <Field label="Kundereference" tip="Kundens eget ordrenummer eller PO-reference."><input value={form.customerRef||""} onChange={e=>setForm({...form,customerRef:e.target.value})} placeholder="f.eks. PO-12345"/></Field>
-        <Field label="Batch"><select value={form.batchId} onChange={e=>setForm({...form,batchId:e.target.value})}><option value="">—</option>{data.batches.map(b=><option key={b.id} value={b.id}>{b.id}</option>)}</select></Field>
+        <Field label="Kunde"><select value={form.customer_id||""} onChange={e=>setForm({...form,customer_id:e.target.value||null})}><option value="">Vælg kunde...</option>{customers.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></Field>
+        <Field label="Ordredato"><input type="date" value={form.order_date||""} onChange={e=>setForm({...form,order_date:e.target.value})}/></Field>
+        <Field label="Ønsket leveringsdato" tip="Hvornår forventer kunden levering? Bruges til planlægning."><input type="date" value={form.delivery_date||""} onChange={e=>setForm({...form,delivery_date:e.target.value})}/></Field>
+        <Field label="Produkt"><select value={form.product||""} onChange={e=>setForm({...form,product:e.target.value})}>{recipes.map(r=><option key={r.id}>{r.name}</option>)}</select></Field>
+        <Field label="Antal"><input type="number" value={form.qty||""} onChange={e=>setForm({...form,qty:e.target.value})}/></Field>
+        <Field label="Pris pr. stk"><input type="number" value={form.price||""} onChange={e=>setForm({...form,price:e.target.value})}/></Field>
+        <Field label="Kundereference" tip="Kundens eget ordrenummer eller PO-reference."><input value={form.customer_ref||""} onChange={e=>setForm({...form,customer_ref:e.target.value})} placeholder="f.eks. PO-12345"/></Field>
+        <Field label="Batch"><select value={form.batch_ref||""} onChange={e=>setForm({...form,batch_ref:e.target.value||null})}><option value="">—</option>{sqlBatches.map(b=><option key={b.id} value={b.batch_number}>{b.batch_number}</option>)}</select></Field>
         <Field label="Status"><select value={form.status} onChange={e=>setForm({...form,status:e.target.value})}>
           <option value="ny">Ny</option>
           <option value="bekraeftet">Bekræftet</option>
@@ -1147,8 +1171,8 @@ function Customers({data,update}){
         </select></Field>
       </div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 16px"}}>
-        <Field label="Intern note" tip="Kun synlig internt — bruges til planlægning, produktion eller logistik."><textarea value={form.internalNote||""} onChange={e=>setForm({...form,internalNote:e.target.value})} placeholder="f.eks. kunden henter selv, special-etiket"/></Field>
-        <Field label="Bemærkning til kunde" tip="Tekst der kan bruges på følgeseddel eller ordrebekræftelse senere."><textarea value={form.customerNote||""} onChange={e=>setForm({...form,customerNote:e.target.value})} placeholder="f.eks. leveres til bagindgang"/></Field>
+        <Field label="Intern note" tip="Kun synlig internt — bruges til planlægning, produktion eller logistik."><textarea value={form.internal_note||""} onChange={e=>setForm({...form,internal_note:e.target.value})} placeholder="f.eks. kunden henter selv, special-etiket"/></Field>
+        <Field label="Bemærkning til kunde" tip="Tekst der kan bruges på følgeseddel eller ordrebekræftelse senere."><textarea value={form.customer_note||""} onChange={e=>setForm({...form,customer_note:e.target.value})} placeholder="f.eks. leveres til bagindgang"/></Field>
       </div>
       {(parseFloat(form.price)||0)>0&&(parseInt(form.qty)||0)>0&&<div style={{padding:"10px 14px",background:T.accDD,borderRadius:8,marginBottom:14,fontSize:13}}>
         Total: <strong style={{fontFamily:T.fm,color:T.acc}}>{fk(Math.round((parseFloat(form.price)||0)*(parseInt(form.qty)||0)))}</strong>
@@ -1163,9 +1187,9 @@ function Economy({data,save,supabase}){
   const[editP,setEditP]=useState(false);const p=data.prices||{};const[pf,setPf]=useState(p)
   const[simOpen,setSimOpen]=useState(false);const[simRid,setSimRid]=useState("");const[simW,setSimW]=useState("");const[simOh,setSimOh]=useState("");const[simRawMul,setSimRawMul]=useState("0");const[simPackMul,setSimPackMul]=useState("0")
   const[ecoBatches,setEcoBatches]=useState(null)
+  const[orders,setOrders]=useState([])
   const recipes=(data.recipes||[]).filter(r=>r.active)
-  const orders=data.orders||[]
-  useEffect(()=>{if(supabase)getBatches(supabase).then(setEcoBatches).catch(()=>{})},[supabase])
+  useEffect(()=>{if(!supabase)return;getBatches(supabase).then(setEcoBatches).catch(()=>{});getOrders(supabase).then(setOrders).catch(()=>{})},[supabase])
 
   // Cost helpers
   const costRaw=(rid)=>{const r=(data.recipes||[]).find(x=>x.id===rid);if(!r)return 0;return(r.bom||[]).filter(b=>{const inv=data.inventory.find(x=>x.id===b.itemId);return inv?.cat==="Råvare"}).reduce((s,b)=>{const inv=data.inventory.find(x=>x.id===b.itemId);return s+(inv?.costPer||0)*b.qty},0)}
@@ -1187,11 +1211,11 @@ function Economy({data,save,supabase}){
   const mo=today().slice(0,7)
   const prevDate=new Date(today());prevDate.setMonth(prevDate.getMonth()-1)
   const prevMo=prevDate.toISOString().slice(0,7)
-  const revThis=orders.filter(o=>o.date?.startsWith(mo)).reduce((s,o)=>s+(parseFloat(o.price)||0)*(parseInt(o.qty)||0),0)
-  const revPrev=orders.filter(o=>o.date?.startsWith(prevMo)).reduce((s,o)=>s+(parseFloat(o.price)||0)*(parseInt(o.qty)||0),0)
+  const revThis=orders.filter(o=>o.order_date?.startsWith(mo)).reduce((s,o)=>s+(parseFloat(o.price)||0)*(parseInt(o.qty)||0),0)
+  const revPrev=orders.filter(o=>o.order_date?.startsWith(prevMo)).reduce((s,o)=>s+(parseFloat(o.price)||0)*(parseInt(o.qty)||0),0)
 
   // Bottles sold this month + weighted margin
-  const thisMonthOrders=orders.filter(o=>o.date?.startsWith(mo))
+  const thisMonthOrders=orders.filter(o=>o.order_date?.startsWith(mo))
   const totalQtyThis=thisMonthOrders.reduce((s,o)=>s+(parseInt(o.qty)||0),0)
   let marginWeightedSum=0;let revenueWeightedSum=0
   thisMonthOrders.forEach(o=>{
@@ -1229,7 +1253,7 @@ function Economy({data,save,supabase}){
       const daMo=["jan","feb","mar","apr","maj","jun","jul","aug","sep","okt","nov","dec"]
       const months=[]
       for(let i=5;i>=0;i--){const d=new Date(today());d.setMonth(d.getMonth()-i);months.push(d.toISOString().slice(0,7))}
-      const revByMonth=months.map(m=>({key:m,label:daMo[parseInt(m.slice(5,7))-1],rev:orders.filter(o=>o.date?.startsWith(m)).reduce((s,o)=>s+(parseFloat(o.price)||0)*(parseInt(o.qty)||0),0)}))
+      const revByMonth=months.map(m=>({key:m,label:daMo[parseInt(m.slice(5,7))-1],rev:orders.filter(o=>o.order_date?.startsWith(m)).reduce((s,o)=>s+(parseFloat(o.price)||0)*(parseInt(o.qty)||0),0)}))
       const maxRev=Math.max(...revByMonth.map(m=>m.rev),1)
       const hasAny=revByMonth.some(m=>m.rev>0)
       return<Card style={{marginBottom:22,padding:16}}>
@@ -1340,10 +1364,12 @@ function Economy({data,save,supabase}){
 }
 
 // ═══ MAIL — with templates + inbox + sent ═══
-function Mail({data,update}){
+function Mail({data,update,supabase}){
   const[tab,setTab]=useState("compose");const[sending,setSending]=useState(false);const[status,setStatus]=useState("")
   const[to,setTo]=useState("");const[subject,setSubject]=useState("");const[body,setBody]=useState("")
   const emails=data.emails||[];const inbox=data.inbox||[]
+  const[mailCustomers,setMailCustomers]=useState([])
+  useEffect(()=>{if(supabase)getCustomers(supabase).then(setMailCustomers).catch(()=>{})},[supabase])
 
   const templates=[
     {name:"B2B Introduktion",subject:"DRYP — Dansk dild olie til dit køkken",body:"Kære [navn],\n\nJeg skriver fra DRYP i Skagen. Vi producerer koldpresset dansk rapsolie med frisk dild — et produkt skabt af kokke, til kokke.\n\nJeg vil gerne sende jer en gratis prøvepakke (3×50ml) så I selv kan smage kvaliteten.\n\nHvornår passer det at vi tager en kort snak?\n\nVenlig hilsen\nAndreas\nDRYP · Skagen"},
@@ -1370,7 +1396,7 @@ function Mail({data,update}){
 
     {tab==="compose"&&<Card>
       <Field label="Til" tip="Modtagerens email. Du kan vælge en kunde-email nedenfor."><input type="email" value={to} onChange={e=>setTo(e.target.value)} placeholder="kunde@email.dk"/></Field>
-      {data.customers?.length>0&&<div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12}}>{data.customers.filter(c=>c.email).map(c=><button key={c.id} onClick={()=>setTo(c.email)} style={{fontSize:11,padding:"3px 10px",borderRadius:20,background:to===c.email?T.accD:"transparent",border:`1px solid ${T.brdL}`,color:T.mid,cursor:"pointer"}}>{c.name}</button>)}</div>}
+      {mailCustomers.length>0&&<div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12}}>{mailCustomers.filter(c=>c.email).map(c=><button key={c.id} onClick={()=>setTo(c.email)} style={{fontSize:11,padding:"3px 10px",borderRadius:20,background:to===c.email?T.accD:"transparent",border:`1px solid ${T.brdL}`,color:T.mid,cursor:"pointer"}}>{c.name}</button>)}</div>}
       <Field label="Emne"><input value={subject} onChange={e=>setSubject(e.target.value)} placeholder="DRYP — ..."/></Field>
       <Field label="Besked"><textarea value={body} onChange={e=>setBody(e.target.value)} style={{minHeight:220,fontSize:13,lineHeight:1.6}} placeholder="Skriv din besked her..."/></Field>
       {status&&<div style={{fontSize:13,color:status.startsWith("✓")?T.ok:T.red,marginBottom:12,fontWeight:500}}>{status}</div>}

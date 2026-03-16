@@ -571,3 +571,110 @@ begin
   return v_remaining;
 end;
 $$ language plpgsql security definer set search_path = public;
+
+
+-- ═══════════════════════════════════════════
+-- DRYP Phase 2: Customers & Orders
+-- SQL-backed kunder og ordrer med team RLS.
+-- Kør dette i Supabase SQL Editor.
+-- ═══════════════════════════════════════════
+
+
+-- ───────────────────────────────────────────
+-- CUSTOMERS
+-- Kundedatabase. Delt mellem alle team-
+-- medlemmer via is_team_member() RLS.
+-- ───────────────────────────────────────────
+create table if not exists customers (
+  id            uuid        primary key default gen_random_uuid(),
+  name          text        not null,
+  type          text        check (type in ('restaurant','delikatesse','detail','engros')),
+  contact       text,
+  email         text,
+  phone         text,
+  status        text        not null default 'lead'
+                            check (status in ('lead','prøve','aktiv','inaktiv')),
+  notes         text,
+  created_by    uuid        references auth.users(id),
+  updated_by    uuid        references auth.users(id),
+  created_at    timestamptz not null default now(),
+  updated_at    timestamptz not null default now()
+);
+
+create index if not exists customers_name_idx on customers (name);
+create index if not exists customers_status_idx on customers (status);
+
+alter table customers enable row level security;
+
+create policy "Team can view customers"
+  on customers for select using (is_team_member());
+create policy "Team can insert customers"
+  on customers for insert with check (is_team_member());
+create policy "Team can update customers"
+  on customers for update using (is_team_member());
+create policy "Team can delete customers"
+  on customers for delete using (is_team_member());
+
+
+-- ───────────────────────────────────────────
+-- ORDERS
+-- Ordrer knyttet til kunder. batch_ref er en
+-- løs tekst-reference til en batch (ikke FK).
+-- ───────────────────────────────────────────
+create table if not exists orders (
+  id              uuid        primary key default gen_random_uuid(),
+  customer_id     uuid        references customers(id) on delete set null,
+  order_date      date,
+  delivery_date   date,
+  product         text,
+  qty             integer,
+  price           numeric,
+  batch_ref       text,
+  status          text        not null default 'ny'
+                              check (status in ('ny','bekraeftet','produktion','levering','leveret','fakturaklar','faktureret')),
+  customer_ref    text,
+  internal_note   text,
+  customer_note   text,
+  created_by      uuid        references auth.users(id),
+  updated_by      uuid        references auth.users(id),
+  created_at      timestamptz not null default now(),
+  updated_at      timestamptz not null default now()
+);
+
+create index if not exists orders_customer_id_idx on orders (customer_id);
+create index if not exists orders_status_idx on orders (status);
+create index if not exists orders_delivery_date_idx on orders (delivery_date);
+create index if not exists orders_order_date_idx on orders (order_date desc);
+
+alter table orders enable row level security;
+
+create policy "Team can view orders"
+  on orders for select using (is_team_member());
+create policy "Team can insert orders"
+  on orders for insert with check (is_team_member());
+create policy "Team can update orders"
+  on orders for update using (is_team_member());
+create policy "Team can delete orders"
+  on orders for delete using (is_team_member());
+
+
+-- ─── AUTO-UPDATE TIMESTAMPS ───
+-- Reuse the existing update_team_data_timestamp pattern
+-- but create a generic trigger function for updated_at.
+create or replace function update_updated_at()
+returns trigger as $$
+begin
+  new.updated_at = now();
+  return new;
+end;
+$$ language plpgsql;
+
+create trigger customers_updated_at
+  before update on customers
+  for each row
+  execute function update_updated_at();
+
+create trigger orders_updated_at
+  before update on orders
+  for each row
+  execute function update_updated_at();
