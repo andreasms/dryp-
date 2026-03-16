@@ -133,7 +133,7 @@ function Dashboard({data,supabase,setPage,setBatchNav,rawStock={}}){
   const low=data.inventory.filter(i=>getStock(i,rawStock)<i.min)
   const ccpOk=prods.filter(p=>p.ccp1Ok&&p.ccp2Ok).length
   const openDevs=(data.haccp?.deviations||[]).filter(d=>!d.closedDate)
-  const pendingOrders=(data.orders||[]).filter(o=>o.status==="bestilt")
+  const pendingOrders=(data.orders||[]).filter(o=>!["leveret","fakturaklar","faktureret"].includes(o.status))
   const[sqlBatches,setSqlBatches]=useState(null)
   useEffect(()=>{if(!supabase)return;getBatches(supabase).then(rows=>{if(rows)setSqlBatches(rows)}).catch(()=>{})},[supabase])
   const activeBatches=(sqlBatches||[]).filter(b=>b.status==="in_progress")
@@ -1057,12 +1057,105 @@ function Customers({data,update}){
   const[tab,setTab]=useState("customers");const[show,setShow]=useState(false);const[ft,setFt]=useState("c");const[form,setForm]=useState({})
   const recipes=(data.recipes||[]).filter(r=>r.active)
   const doSave=()=>{if(ft==="c")update("customers",p=>[form,...p.filter(c=>c.id!==form.id)]);else update("orders",p=>[form,...p.filter(o=>o.id!==form.id)]);setShow(false)}
+  const orderStatusDa={ny:"Ny",bekraeftet:"Bekræftet",produktion:"Klar til produktion",levering:"Klar til levering",leveret:"Leveret",fakturaklar:"Klar til fakturering",faktureret:"Faktureret",bestilt:"Bestilt",pakket:"Pakket"}
+  const orderStatusC={ny:T.dim,bekraeftet:T.acc,produktion:T.warn,levering:T.warn,leveret:T.ok,fakturaklar:T.acc,faktureret:T.dim,bestilt:T.warn,pakket:T.acc}
+  const normalizeStatus=(s)=>({bestilt:"bekraeftet",pakket:"levering"}[s]||s)
+  const newOrder=()=>{setFt("o");setForm({id:uid(),customerId:data.customers[0]?.id||"",date:today(),deliveryDate:"",product:recipes[0]?.name||"",qty:"",price:"",batchId:"",status:"ny",customerRef:"",internalNote:"",customerNote:""});setShow(true)}
+  const newCustomer=()=>{setFt("c");setForm({id:uid(),name:"",type:"restaurant",contact:"",email:"",phone:"",status:"lead",notes:"",created:today()});setShow(true)}
+  const doneStatuses=["leveret","fakturaklar","faktureret"]
+  const sorted=[...data.orders].sort((a,b)=>{
+    const aDone=doneStatuses.includes(a.status)?1:0
+    const bDone=doneStatuses.includes(b.status)?1:0
+    if(aDone!==bDone)return aDone-bDone
+    const aDate=a.deliveryDate||a.date||""
+    const bDate=b.deliveryDate||b.date||""
+    return aDone?bDate.localeCompare(aDate):aDate.localeCompare(bDate)
+  })
   return<div style={{maxWidth:1060}}>
-    <Tabs tabs={[["customers","Kunder"],["orders","Ordrer"]]} active={tab} onChange={setTab} right={<Btn primary small onClick={()=>{if(tab==="customers"){setFt("c");setForm({id:uid(),name:"",type:"restaurant",contact:"",email:"",phone:"",status:"lead",notes:"",created:today()})}else{setFt("o");setForm({id:uid(),customerId:data.customers[0]?.id||"",date:today(),product:recipes[0]?.name||"",qty:"",price:"",batchId:"",status:"bestilt",notes:""})}setShow(true)}}><Plus s={11} c={T.bg}/> {tab==="customers"?"Ny kunde":"Ny ordre"}</Btn>}/>
-    {tab==="customers"&&(data.customers.length===0?<Empty text="Ingen kunder endnu" action="Tilføj kunde" onAction={()=>{setFt("c");setForm({id:uid(),name:"",type:"restaurant",contact:"",email:"",phone:"",status:"lead",notes:"",created:today()});setShow(true)}}/>:data.customers.map(c=><Card key={c.id} style={{marginBottom:6,padding:12}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><div style={{display:"flex",alignItems:"center",gap:10}}><div style={{width:32,height:32,borderRadius:"50%",background:T.accD,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:700,color:T.acc}}>{c.name?.charAt(0)?.toUpperCase()}</div><div><div style={{fontSize:13,fontWeight:500}}>{c.name}</div><div style={{fontSize:12,color:T.dim}}>{c.type}{c.email&&` · ${c.email}`}</div></div></div><div style={{display:"flex",gap:6}}><Badge c={c.status==="aktiv"?T.ok:c.status==="lead"?T.acc:T.dim}>{c.status}</Badge><Btn small onClick={()=>{setFt("c");setForm(c);setShow(true)}}>Rediger</Btn><Btn small danger onClick={()=>{if(confirm(`Slet?`))update("customers",p=>p.filter(x=>x.id!==c.id))}}>Slet</Btn></div></div></Card>))}
-    {tab==="orders"&&(data.orders.length===0?<Empty text="Ingen ordrer"/>:<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}><thead><tr style={{borderBottom:`1px solid ${T.brd}`}}>{["Dato","Kunde","Produkt","Antal","Pris","Status",""].map(h=><th key={h} style={{textAlign:"left",padding:"8px 10px",fontSize:11,color:T.dim,fontWeight:600}}>{h}</th>)}</tr></thead><tbody>{[...data.orders].sort((a,b)=>(b.date||"").localeCompare(a.date||"")).map(o=><tr key={o.id} style={{borderBottom:`1px solid ${T.brdL}`}}><td style={{padding:"8px 10px",fontFamily:T.fm,fontSize:12,color:T.mid}}>{o.date}</td><td style={{padding:"8px 10px"}}>{data.customers.find(c=>c.id===o.customerId)?.name||"—"}</td><td style={{padding:"8px 10px",color:T.mid}}>{o.product}</td><td style={{padding:"8px 10px",fontFamily:T.fm}}>{o.qty}</td><td style={{padding:"8px 10px",fontFamily:T.fm}}>{o.price?`${o.price}kr`:"—"}</td><td style={{padding:"8px 10px"}}><Badge c={o.status==="leveret"?T.ok:o.status==="bestilt"?T.warn:T.acc}>{o.status}</Badge></td><td><Btn small onClick={()=>{setFt("o");setForm(o);setShow(true)}}>Rediger</Btn></td></tr>)}</tbody></table></div>)}
-    {show&&ft==="c"&&<Modal title={form.name||"Ny kunde"} onClose={()=>setShow(false)}><Field label="Navn"><input value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/></Field><Field label="Type"><select value={form.type} onChange={e=>setForm({...form,type:e.target.value})}><option value="restaurant">Restaurant</option><option value="delikatesse">Delikatesse</option><option value="detail">Detail</option><option value="engros">Engros</option></select></Field><Field label="Kontakt"><input value={form.contact} onChange={e=>setForm({...form,contact:e.target.value})}/></Field><Field label="Email"><input value={form.email} onChange={e=>setForm({...form,email:e.target.value})}/></Field><Field label="Telefon"><input value={form.phone} onChange={e=>setForm({...form,phone:e.target.value})}/></Field><Field label="Status"><select value={form.status} onChange={e=>setForm({...form,status:e.target.value})}><option value="lead">Lead</option><option value="prøve">Prøve sendt</option><option value="aktiv">Aktiv</option><option value="inaktiv">Inaktiv</option></select></Field><Field label="Noter"><textarea value={form.notes} onChange={e=>setForm({...form,notes:e.target.value})}/></Field><div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn onClick={()=>setShow(false)}>Annuller</Btn><Btn primary onClick={doSave}>✓ Gem</Btn></div></Modal>}
-    {show&&ft==="o"&&<Modal title="Ordre" onClose={()=>setShow(false)}><Field label="Kunde"><select value={form.customerId} onChange={e=>setForm({...form,customerId:e.target.value})}>{data.customers.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></Field><Field label="Dato"><input type="date" value={form.date} onChange={e=>setForm({...form,date:e.target.value})}/></Field><Field label="Produkt"><select value={form.product} onChange={e=>setForm({...form,product:e.target.value})}>{recipes.map(r=><option key={r.id}>{r.name}</option>)}</select></Field><Field label="Antal"><input type="number" value={form.qty} onChange={e=>setForm({...form,qty:e.target.value})}/></Field><Field label="Pris pr. stk"><input type="number" value={form.price} onChange={e=>setForm({...form,price:e.target.value})}/></Field><Field label="Batch"><select value={form.batchId} onChange={e=>setForm({...form,batchId:e.target.value})}><option value="">—</option>{data.batches.map(b=><option key={b.id} value={b.id}>{b.id}</option>)}</select></Field><Field label="Status"><select value={form.status} onChange={e=>setForm({...form,status:e.target.value})}><option value="bestilt">Bestilt</option><option value="pakket">Pakket</option><option value="leveret">Leveret</option><option value="faktureret">Faktureret</option></select></Field><div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn onClick={()=>setShow(false)}>Annuller</Btn><Btn primary onClick={doSave}>✓ Gem</Btn></div></Modal>}
+    <Tabs tabs={[["customers","Kunder"],["orders","Ordrer"]]} active={tab} onChange={setTab} right={<Btn primary small onClick={()=>{if(tab==="customers")newCustomer();else newOrder()}}><Plus s={11} c={T.bg}/> {tab==="customers"?"Ny kunde":"Ny ordre"}</Btn>}/>
+
+    {/* ─── KUNDER ─── */}
+    {tab==="customers"&&(data.customers.length===0?<Empty text="Ingen kunder endnu" action="Tilføj kunde" onAction={newCustomer}/>:data.customers.map(c=><Card key={c.id} style={{marginBottom:6,padding:12}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><div style={{display:"flex",alignItems:"center",gap:10}}><div style={{width:32,height:32,borderRadius:"50%",background:T.accD,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:700,color:T.acc}}>{c.name?.charAt(0)?.toUpperCase()}</div><div><div style={{fontSize:13,fontWeight:500}}>{c.name}</div><div style={{fontSize:12,color:T.dim}}>{c.type}{c.email&&` · ${c.email}`}{c.phone&&` · ${c.phone}`}</div></div></div><div style={{display:"flex",gap:6,flexShrink:0}}><Badge c={c.status==="aktiv"?T.ok:c.status==="lead"?T.acc:T.dim}>{c.status}</Badge><Btn small onClick={()=>{setFt("c");setForm(c);setShow(true)}}>Rediger</Btn><Btn small danger onClick={()=>{if(confirm(`Slet "${c.name}"?`))update("customers",p=>p.filter(x=>x.id!==c.id))}}>Slet</Btn></div></div></Card>))}
+
+    {/* ─── ORDRER ─── */}
+    {tab==="orders"&&(data.orders.length===0?<Empty text="Ingen ordrer endnu" action="Opret ordre" onAction={newOrder}/>:<div>
+      {sorted.map(o=>{
+        const cust=data.customers.find(c=>c.id===o.customerId)
+        const total=(parseFloat(o.price)||0)*(parseInt(o.qty)||0)
+        const stLabel=orderStatusDa[o.status]||o.status
+        const stColor=orderStatusC[o.status]||T.dim
+        const isUrgent=!doneStatuses.includes(o.status)&&o.deliveryDate&&o.deliveryDate<=addDays(today(),2)
+        return<Card key={o.id} style={{marginBottom:6,padding:"12px 14px",borderLeft:`4px solid ${stColor}`}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                <span style={{fontSize:14,fontWeight:600}}>{cust?.name||"—"}</span>
+                <Badge c={stColor}>{stLabel}</Badge>
+                {isUrgent&&<span style={{fontSize:11,fontWeight:600,color:T.red}}>Snart levering</span>}
+              </div>
+              <div style={{fontSize:12,color:T.dim,marginTop:3}}>
+                {o.product} · {o.qty} stk{total>0&&<span style={{color:T.mid,marginLeft:6}}>{fk(Math.round(total))}</span>}
+                {o.deliveryDate&&<span style={{marginLeft:8}}>Levering: <span style={{color:isUrgent?T.red:T.txt,fontWeight:isUrgent?600:400}}>{o.deliveryDate}</span></span>}
+                {!o.deliveryDate&&<span style={{marginLeft:8,color:T.warn}}>Ingen leveringsdato</span>}
+              </div>
+              <div style={{fontSize:11,color:T.dim,marginTop:2}}>
+                Bestilt {o.date}{o.customerRef&&<span style={{marginLeft:8}}>Ref: {o.customerRef}</span>}{o.batchId&&<span style={{marginLeft:8}}>Batch: {o.batchId}</span>}
+              </div>
+              {o.internalNote&&<div style={{fontSize:11,color:T.warn,marginTop:3,fontStyle:"italic"}}>Intern: {o.internalNote}</div>}
+            </div>
+            <div style={{display:"flex",gap:6,flexShrink:0,marginLeft:12}}>
+              <Btn small onClick={()=>{setFt("o");setForm({customerRef:"",internalNote:"",customerNote:"",deliveryDate:"",...o,status:normalizeStatus(o.status)});setShow(true)}}>Rediger</Btn>
+            </div>
+          </div>
+        </Card>
+      })}
+    </div>)}
+
+    {/* ─── KUNDE MODAL ─── */}
+    {show&&ft==="c"&&<Modal title={form.name||"Ny kunde"} onClose={()=>setShow(false)}>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 16px"}}>
+        <Field label="Navn"><input value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/></Field>
+        <Field label="Type"><select value={form.type} onChange={e=>setForm({...form,type:e.target.value})}><option value="restaurant">Restaurant</option><option value="delikatesse">Delikatesse</option><option value="detail">Detail</option><option value="engros">Engros</option></select></Field>
+        <Field label="Kontakt"><input value={form.contact} onChange={e=>setForm({...form,contact:e.target.value})}/></Field>
+        <Field label="Email"><input value={form.email} onChange={e=>setForm({...form,email:e.target.value})}/></Field>
+        <Field label="Telefon"><input value={form.phone} onChange={e=>setForm({...form,phone:e.target.value})}/></Field>
+        <Field label="Status"><select value={form.status} onChange={e=>setForm({...form,status:e.target.value})}><option value="lead">Lead</option><option value="prøve">Prøve sendt</option><option value="aktiv">Aktiv</option><option value="inaktiv">Inaktiv</option></select></Field>
+      </div>
+      <Field label="Noter"><textarea value={form.notes} onChange={e=>setForm({...form,notes:e.target.value})}/></Field>
+      <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn onClick={()=>setShow(false)}>Annuller</Btn><Btn primary onClick={doSave}>Gem kunde</Btn></div>
+    </Modal>}
+
+    {/* ─── ORDRE MODAL ─── */}
+    {show&&ft==="o"&&<Modal title={form.customerId?`Ordre · ${data.customers.find(c=>c.id===form.customerId)?.name||""}`:"Ny ordre"} onClose={()=>setShow(false)} wide>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:"0 16px"}}>
+        <Field label="Kunde"><select value={form.customerId} onChange={e=>setForm({...form,customerId:e.target.value})}><option value="">Vælg kunde...</option>{data.customers.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></Field>
+        <Field label="Ordredato"><input type="date" value={form.date} onChange={e=>setForm({...form,date:e.target.value})}/></Field>
+        <Field label="Ønsket leveringsdato" tip="Hvornår forventer kunden levering? Bruges til planlægning."><input type="date" value={form.deliveryDate||""} onChange={e=>setForm({...form,deliveryDate:e.target.value})}/></Field>
+        <Field label="Produkt"><select value={form.product} onChange={e=>setForm({...form,product:e.target.value})}>{recipes.map(r=><option key={r.id}>{r.name}</option>)}</select></Field>
+        <Field label="Antal"><input type="number" value={form.qty} onChange={e=>setForm({...form,qty:e.target.value})}/></Field>
+        <Field label="Pris pr. stk"><input type="number" value={form.price} onChange={e=>setForm({...form,price:e.target.value})}/></Field>
+        <Field label="Kundereference" tip="Kundens eget ordrenummer eller PO-reference."><input value={form.customerRef||""} onChange={e=>setForm({...form,customerRef:e.target.value})} placeholder="f.eks. PO-12345"/></Field>
+        <Field label="Batch"><select value={form.batchId} onChange={e=>setForm({...form,batchId:e.target.value})}><option value="">—</option>{data.batches.map(b=><option key={b.id} value={b.id}>{b.id}</option>)}</select></Field>
+        <Field label="Status"><select value={form.status} onChange={e=>setForm({...form,status:e.target.value})}>
+          <option value="ny">Ny</option>
+          <option value="bekraeftet">Bekræftet</option>
+          <option value="produktion">Klar til produktion</option>
+          <option value="levering">Klar til levering</option>
+          <option value="leveret">Leveret</option>
+          <option value="fakturaklar">Klar til fakturering</option>
+          <option value="faktureret">Faktureret</option>
+        </select></Field>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 16px"}}>
+        <Field label="Intern note" tip="Kun synlig internt — bruges til planlægning, produktion eller logistik."><textarea value={form.internalNote||""} onChange={e=>setForm({...form,internalNote:e.target.value})} placeholder="f.eks. kunden henter selv, special-etiket"/></Field>
+        <Field label="Bemærkning til kunde" tip="Tekst der kan bruges på følgeseddel eller ordrebekræftelse senere."><textarea value={form.customerNote||""} onChange={e=>setForm({...form,customerNote:e.target.value})} placeholder="f.eks. leveres til bagindgang"/></Field>
+      </div>
+      {(parseFloat(form.price)||0)>0&&(parseInt(form.qty)||0)>0&&<div style={{padding:"10px 14px",background:T.accDD,borderRadius:8,marginBottom:14,fontSize:13}}>
+        Total: <strong style={{fontFamily:T.fm,color:T.acc}}>{fk(Math.round((parseFloat(form.price)||0)*(parseInt(form.qty)||0)))}</strong>
+        <span style={{color:T.dim,marginLeft:8}}>({form.qty} × {form.price} kr)</span>
+      </div>}
+      <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn onClick={()=>setShow(false)}>Annuller</Btn><Btn primary onClick={doSave}>Gem ordre</Btn></div>
+    </Modal>}
   </div>
 }
 
