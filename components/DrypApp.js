@@ -133,10 +133,10 @@ function Dashboard({data,supabase,setPage,setBatchNav,rawStock={}}){
   const mo=today().slice(0,7);const prods=data.productions.filter(p=>p.date?.startsWith(mo))
   const low=data.inventory.filter(i=>getStock(i,rawStock)<i.min)
   const ccpOk=prods.filter(p=>p.ccp1Ok&&p.ccp2Ok).length
-  const openDevs=(data.haccp?.deviations||[]).filter(d=>!d.closedDate)
+  const[openDevs,setOpenDevs]=useState([])
   const[sqlBatches,setSqlBatches]=useState(null)
   const[sqlOrders,setSqlOrders]=useState([])
-  useEffect(()=>{if(!supabase)return;getBatches(supabase).then(rows=>{if(rows)setSqlBatches(rows)}).catch(()=>{});getOrders(supabase).then(setSqlOrders).catch(()=>{})},[supabase])
+  useEffect(()=>{if(!supabase)return;getBatches(supabase).then(rows=>{if(rows)setSqlBatches(rows)}).catch(()=>{});getOrders(supabase).then(setSqlOrders).catch(()=>{});getHaccpLogs(supabase,{category:"deviations"}).then(rows=>{const open=(rows||[]).filter(r=>{const p=r.payload||{};const closed=p.devStatus==="closed"||(p.devStatus==null&&!!p.closedDate);return!closed});setOpenDevs(open)}).catch(()=>{})},[supabase])
   const rev=sqlOrders.filter(o=>o.order_date?.startsWith(mo)).reduce((s,o)=>s+(parseFloat(o.price)||0)*(parseInt(o.qty)||0),0)
   const pendingOrders=sqlOrders.filter(o=>!["leveret","fakturaklar","faktureret"].includes(o.status))
   const activeBatches=(sqlBatches||[]).filter(b=>b.status==="in_progress")
@@ -723,6 +723,9 @@ function HACCPLogs({data,update,supabase,user}){
   const[sqlLogs,setSqlLogs]=useState([])
   const[loading,setLoading]=useState(false)
   const[saving,setSaving]=useState(false)
+  const[devBatches,setDevBatches]=useState([])
+  const[devErr,setDevErr]=useState("")
+  useEffect(()=>{if(supabase)getBatches(supabase).then(setDevBatches).catch(()=>{})},[supabase])
 
   const tabs=[["cleaning","Rengøring"],["temps","Temperatur"],["receiving","Modtagelse"],["deviations","Afvigelser"],["maintenance","Vedligehold"]]
   const tabLabel=Object.fromEntries(tabs)
@@ -797,13 +800,24 @@ function HACCPLogs({data,update,supabase,user}){
     cleaning:["area","product","disinfected","ok"],
     temps:["time","fridge1","fridge2","prodRoom","withinLimits","action"],
     receiving:["supplier","item","qty","temp","packagingOk","approved"],
-    deviations:["description","processStep","batchId","corrective","preventive","closedDate"],
+    deviations:["devNumber","description","processStep","batchId","batchNumber","immediateAction","rootCause","corrective","preventive","responsible","devStatus","closedDate"],
     maintenance:["equipment","checkType","status","action","nextCheck"]
   }
 
-  const newE=()=>{
-    const ex={cleaning:{area:"",product:"",disinfected:false,ok:false},temps:{time:"08:00",fridge1:"",fridge2:"",prodRoom:"",withinLimits:false,action:""},receiving:{supplier:"",item:"",qty:"",temp:"",packagingOk:false,approved:false},deviations:{description:"",processStep:"",batchId:"",corrective:"",preventive:"",closedDate:""},maintenance:{equipment:"",checkType:"",status:"OK",action:"",nextCheck:""}}
+  const newE=async()=>{
+    const ex={cleaning:{area:"",product:"",disinfected:false,ok:false},temps:{time:"08:00",fridge1:"",fridge2:"",prodRoom:"",withinLimits:false,action:""},receiving:{supplier:"",item:"",qty:"",temp:"",packagingOk:false,approved:false},deviations:{devNumber:"",description:"",processStep:"",batchId:"",batchNumber:"",immediateAction:"",rootCause:"",corrective:"",preventive:"",responsible:user?.email?.split("@")[0]||"",devStatus:"open",closedDate:null},maintenance:{equipment:"",checkType:"",status:"OK",action:"",nextCheck:""}}
+    // Generate DEV number for new deviations
+    if(tab==="deviations"&&supabase){
+      try{
+        const year=new Date().getFullYear()
+        const{data:rows}=await supabase.from("haccp_logs").select("payload").eq("category","deviations")
+        const nums=(rows||[]).map(r=>{const dn=r.payload?.devNumber;if(!dn||!dn.startsWith(`DEV-${year}-`))return 0;return parseInt(dn.split("-")[2])||0})
+        const next=(nums.length>0?Math.max(...nums):0)+1
+        ex.deviations.devNumber=`DEV-${year}-${String(next).padStart(3,"0")}`
+      }catch(e){console.error("[DRYP] DEV number gen failed:",e)}
+    }
     setForm({_isNew:true,date:today(),operator:user?.email?.split("@")[0]||"",notes:"",...ex[tab]})
+    setDevErr("")
     setShow(true)
   }
 
@@ -815,11 +829,21 @@ function HACCPLogs({data,update,supabase,user}){
 
   const doSave=async()=>{
     if(!supabase)return
+    setDevErr("")
+    // Deviation-specific validation
+    if(tab==="deviations"){
+      if(!form.description?.trim()){setDevErr("Beskrivelse er påkrævet");return}
+      if(form.devStatus==="closed"&&!form.closedDate){setDevErr("Angiv lukkedato for at lukke afvigelsen");return}
+    }
     setSaving(true)
     try{
       const fields=payloadFields[tab]||[]
       const payload={}
       fields.forEach(f=>{if(form[f]!==undefined)payload[f]=form[f]})
+      // Enforce closure logic
+      if(tab==="deviations"){
+        if(payload.devStatus==="open")payload.closedDate=null
+      }
       const{data:{user:u}}=await supabase.auth.getUser()
 
       if(form._isNew){
@@ -863,7 +887,7 @@ function HACCPLogs({data,update,supabase,user}){
           {cat==="cleaning"&&<span>{p.area||"—"}</span>}
           {cat==="temps"&&<span>K1:{p.fridge1||"—"}° K2:{p.fridge2||"—"}°{p.prodRoom?` Lok:${p.prodRoom}°`:""}</span>}
           {cat==="receiving"&&<span>{p.item||"—"} {p.supplier?`← ${p.supplier}`:""}{p.temp?` ${p.temp}°C`:""}</span>}
-          {cat==="deviations"&&<span style={{color:T.red}}>{(p.description||"—").slice(0,60)}</span>}
+          {cat==="deviations"&&<><span style={{fontFamily:T.fm,fontSize:11,color:T.warn}}>{p.devNumber||e.log_date}</span><span style={{color:T.red}}>{(p.description||"—").slice(0,50)}</span>{p.responsible&&<span style={{fontSize:11,color:T.dim}}>({p.responsible})</span>}{p.batchNumber&&<span style={{fontSize:11,color:T.mid}}>Batch: {p.batchNumber}</span>}</>}
           {cat==="maintenance"&&<span>{p.equipment||"—"}</span>}
           {e.source==="legacy"&&<span style={{fontSize:9,color:T.dim,background:T.accDD,padding:"1px 6px",borderRadius:4}}>arkiv</span>}
         </div>
@@ -871,7 +895,7 @@ function HACCPLogs({data,update,supabase,user}){
           {cat==="cleaning"&&<Dot s={p.ok?"ok":"warn"}/>}
           {cat==="temps"&&<Dot s={p.withinLimits?"ok":"warn"}/>}
           {cat==="receiving"&&<Dot s={p.approved?"ok":"warn"}/>}
-          {cat==="deviations"&&<Badge c={p.closedDate?T.ok:T.red}>{p.closedDate?"Lukket":"Åben"}</Badge>}
+          {cat==="deviations"&&(()=>{const closed=p.devStatus==="closed"||(p.devStatus==null&&!!p.closedDate);return<Badge c={closed?T.ok:T.red}>{closed?"Lukket":"Åben"}</Badge>})()}
           {cat==="maintenance"&&<Badge c={p.status==="OK"?T.ok:T.warn}>{p.status||"—"}</Badge>}
           {editable&&<Btn small onClick={()=>editEntry(e)}>Rediger</Btn>}
           {editable&&<Btn small danger onClick={()=>doDelete(e)}>Slet</Btn>}
@@ -978,7 +1002,24 @@ function HACCPLogs({data,update,supabase,user}){
       {tab==="cleaning"&&<><Field label="Område"><select value={form.area} onChange={e=>setForm({...form,area:e.target.value})}><option value="">Vælg...</option>{["Produktionsbord","Infusionskar","Filtreringsudstyr","Aftapningsudstyr","Gulv","Håndvask","Afløb"].map(a=><option key={a}>{a}</option>)}</select></Field><Field label="Middel"><input value={form.product} onChange={e=>setForm({...form,product:e.target.value})}/></Field><Check checked={form.disinfected} onChange={v=>setForm({...form,disinfected:v})} label="Desinficeret"/><div style={{marginTop:8}}><Check checked={form.ok} onChange={v=>setForm({...form,ok:v})} label="Godkendt"/></div></>}
       {tab==="temps"&&<><Field label="Tid"><input type="time" value={form.time} onChange={e=>setForm({...form,time:e.target.value})}/></Field><Field label="Køl 1 (°C) max 5°C"><input type="number" step=".1" value={form.fridge1} onChange={e=>setForm({...form,fridge1:e.target.value})}/></Field><Field label="Køl 2 (°C) max 15°C"><input type="number" step=".1" value={form.fridge2} onChange={e=>setForm({...form,fridge2:e.target.value})}/></Field><Field label="Lokale (°C)"><input type="number" step=".1" value={form.prodRoom} onChange={e=>setForm({...form,prodRoom:e.target.value})}/></Field><Check checked={form.withinLimits} onChange={v=>setForm({...form,withinLimits:v})} label="Inden for grænser"/></>}
       {tab==="receiving"&&<><Field label="Leverandør"><input value={form.supplier} onChange={e=>setForm({...form,supplier:e.target.value})}/></Field><Field label="Vare"><input value={form.item} onChange={e=>setForm({...form,item:e.target.value})}/></Field><Field label="Mængde"><input value={form.qty} onChange={e=>setForm({...form,qty:e.target.value})}/></Field><Field label="Temp (°C)"><input type="number" step=".1" value={form.temp} onChange={e=>setForm({...form,temp:e.target.value})}/></Field><Check checked={form.packagingOk} onChange={v=>setForm({...form,packagingOk:v})} label="Emballage OK"/><div style={{marginTop:8}}><Check checked={form.approved} onChange={v=>setForm({...form,approved:v})} label="Godkendt"/></div></>}
-      {tab==="deviations"&&<><Field label="Beskrivelse"><textarea value={form.description} onChange={e=>setForm({...form,description:e.target.value})}/></Field><Field label="Procestrin"><input value={form.processStep} onChange={e=>setForm({...form,processStep:e.target.value})}/></Field><Field label="Batch"><input value={form.batchId} onChange={e=>setForm({...form,batchId:e.target.value})}/></Field><Field label="Korrigerende handling"><textarea value={form.corrective} onChange={e=>setForm({...form,corrective:e.target.value})}/></Field><Field label="Forebyggende"><textarea value={form.preventive} onChange={e=>setForm({...form,preventive:e.target.value})}/></Field><Field label="Afsluttet"><input type="date" value={form.closedDate} onChange={e=>setForm({...form,closedDate:e.target.value})}/></Field></>}
+      {tab==="deviations"&&<>
+        {devErr&&<div style={{background:"#fff0f0",border:`1px solid ${T.red}`,borderRadius:6,padding:"8px 12px",marginBottom:10,fontSize:13,color:T.red}}>{devErr}</div>}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+          <Field label="Afvigelsesnr."><input value={form.devNumber||""} readOnly style={{background:T.bgD,color:T.dim,cursor:"default"}}/></Field>
+          <Field label="Batch"><select value={form.batchId||""} onChange={e=>{const b=devBatches.find(x=>x.id===e.target.value);setForm({...form,batchId:e.target.value,batchNumber:b?b.batch_number:""})}}><option value="">Ingen batch</option>{devBatches.map(b=><option key={b.id} value={b.id}>{b.batch_number} — {b.recipe_name||"ukendt"}</option>)}</select></Field>
+        </div>
+        <Field label="Procestrin"><input value={form.processStep||""} onChange={e=>setForm({...form,processStep:e.target.value})} placeholder="F.eks. blanchering, filtrering, aftapning..."/></Field>
+        <Field label="Beskrivelse *"><textarea value={form.description||""} onChange={e=>setForm({...form,description:e.target.value})} placeholder="Beskriv afvigelsen..." rows={3}/></Field>
+        <Field label="Straks-handling"><textarea value={form.immediateAction||""} onChange={e=>setForm({...form,immediateAction:e.target.value})} placeholder="Hvad blev gjort med det samme?" rows={2}/></Field>
+        <Field label="Årsagsanalyse"><textarea value={form.rootCause||""} onChange={e=>setForm({...form,rootCause:e.target.value})} placeholder="Hvad var den grundlæggende årsag?" rows={2}/></Field>
+        <Field label="Korrigerende handling"><textarea value={form.corrective||""} onChange={e=>setForm({...form,corrective:e.target.value})} placeholder="Hvad rettes for at fjerne årsagen?" rows={2}/></Field>
+        <Field label="Forebyggende handling"><textarea value={form.preventive||""} onChange={e=>setForm({...form,preventive:e.target.value})} placeholder="Hvad forhindrer gentagelse?" rows={2}/></Field>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+          <Field label="Ansvarlig"><input value={form.responsible||""} onChange={e=>setForm({...form,responsible:e.target.value})}/></Field>
+          <Field label="Status"><select value={form.devStatus||"open"} onChange={e=>{const s=e.target.value;setForm({...form,devStatus:s,...(s==="open"?{closedDate:null}:{closedDate:form.closedDate||today()})})}}><option value="open">Åben</option><option value="closed">Lukket</option></select></Field>
+        </div>
+        {form.devStatus==="closed"&&<Field label="Lukkedato"><input type="date" value={form.closedDate||""} onChange={e=>setForm({...form,closedDate:e.target.value})}/></Field>}
+      </>}
       {tab==="maintenance"&&<><Field label="Udstyr"><input value={form.equipment} onChange={e=>setForm({...form,equipment:e.target.value})}/></Field><Field label="Type"><input value={form.checkType} onChange={e=>setForm({...form,checkType:e.target.value})}/></Field><Field label="Status"><select value={form.status} onChange={e=>setForm({...form,status:e.target.value})}><option>OK</option><option>Fejl</option></select></Field><Field label="Handling"><textarea value={form.action} onChange={e=>setForm({...form,action:e.target.value})}/></Field><Field label="Næste kontrol"><input type="date" value={form.nextCheck} onChange={e=>setForm({...form,nextCheck:e.target.value})}/></Field></>}
       <Field label="Noter"><textarea value={form.notes} onChange={e=>setForm({...form,notes:e.target.value})}/></Field>
       <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn onClick={()=>setShow(false)}>Annuller</Btn><Btn primary onClick={doSave} disabled={saving}>{saving?"Gemmer...":"✓ Gem"}</Btn></div>
