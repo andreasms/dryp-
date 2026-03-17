@@ -491,6 +491,7 @@ function Batches({data,update,supabase,batchNav,setBatchNav,refreshStock}){
             </div>
             <div style={{display:"flex",gap:8,alignItems:"center"}}>
               <Badge c={bStatusC}>{bStatusL}</Badge>
+              {isSql&&b.released_at&&<Badge c={T.ok}>Frigivet</Badge>}
               {!isSql&&<><Btn small onClick={e=>{e.stopPropagation();setForm({...b,gtin:b.gtin||"",gs1Note:b.gs1Note||""});setShow(true)}}>Rediger</Btn><Btn small danger onClick={e=>{e.stopPropagation();if(confirm("Slet?"))update("batches",prev=>prev.filter(x=>x.id!==b.id))}}>Slet</Btn></>}
               {isSql&&<Btn small onClick={e=>{e.stopPropagation();setSelectedId(b.id)}}>{b.status==="planned"?"Start":"Åbn"}</Btn>}
             </div>
@@ -535,8 +536,15 @@ function Batches({data,update,supabase,batchNav,setBatchNav,refreshStock}){
           <Btn primary disabled={acting} onClick={tryComplete}>✓ Afslut batch</Btn>
         </div>
         if(s==="completed")return<div style={nsStyle(T.ok)}>
-          <div style={{fontSize:13,color:T.ok,fontWeight:500}}>✓ Batch er afsluttet{selected.completed_at&&<span style={{color:T.dim,fontWeight:400,marginLeft:8,fontSize:11}}>{selected.completed_at.slice(0,10)}</span>}</div>
-          <div style={{fontSize:12,color:T.mid,marginTop:6}}>Output: {selected.actual_qty||"—"} stk{selected.process_loss_qty>0&&<span style={{color:T.warn,marginLeft:10}}>Spild: {selected.process_loss_qty} stk</span>}{selected.loss_notes&&<span style={{color:T.dim,marginLeft:10}}>({selected.loss_notes})</span>}</div>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <div>
+              <div style={{fontSize:13,color:T.ok,fontWeight:500}}>✓ Batch er afsluttet{selected.completed_at&&<span style={{color:T.dim,fontWeight:400,marginLeft:8,fontSize:11}}>{selected.completed_at.slice(0,10)}</span>}</div>
+              <div style={{fontSize:12,color:T.mid,marginTop:6}}>Output: {selected.actual_qty||"—"} stk{selected.process_loss_qty>0&&<span style={{color:T.warn,marginLeft:10}}>Spild: {selected.process_loss_qty} stk</span>}{selected.loss_notes&&<span style={{color:T.dim,marginLeft:10}}>({selected.loss_notes})</span>}</div>
+            </div>
+            {selected.released_at
+              ?<div style={{textAlign:"right"}}><Badge c={T.ok}>Frigivet</Badge><div style={{fontSize:10,color:T.dim,marginTop:3}}>{new Date(selected.released_at).toLocaleDateString("da-DK",{day:"numeric",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"})}</div></div>
+              :<Btn primary disabled={acting} onClick={async()=>{setActing(true);try{const{data:{user:u}}=await supabase.auth.getUser();await updateBatchStatus(supabase,selectedId,selected.status,{released_at:new Date().toISOString()});try{await appendEvent(supabase,{batch_id:selectedId,user_id:u.id,event_type:"released",payload:{},created_by:u.email||u.id})}catch(evErr){console.error("[DRYP] release event failed (non-critical):",evErr)}refresh()}catch(err){console.error("[DRYP] release failed:",err)}finally{setActing(false)}}}>Frigiv batch</Btn>}
+          </div>
         </div>
         return null
       })()}
@@ -1033,12 +1041,13 @@ function Inventory({data,update,supabase,rawStock={},refreshStock}){
   const[showLot,setShowLot]=useState(false);const[lotForm,setLotForm]=useState({});const[savingLot,setSavingLot]=useState(false)
   const[activeLots,setActiveLots]=useState([])
   const[fgStock,setFgStock]=useState({})
+  const[fgSellable,setFgSellable]=useState({})
   const loadLots=()=>{if(supabase)getActiveLots(supabase).then(setActiveLots).catch(()=>{})}
   useEffect(()=>{loadLots()},[supabase])
   const fgItems=(data.inventory||[]).filter(i=>i.cat==="Færdigvare")
   const fgIds=fgItems.map(i=>i.id).join(",")
   useEffect(()=>{
-    if(!supabase||fgItems.length===0){setFgStock({});return}
+    if(!supabase||fgItems.length===0){setFgStock({});setFgSellable({});return}
     supabase.from("stock_levels").select("item_id,current_qty,last_movement_at").in("item_id",fgItems.map(i=>i.id))
       .then(({data:rows})=>{
         if(!rows)return
@@ -1049,6 +1058,13 @@ function Inventory({data,update,supabase,rawStock={},refreshStock}){
           else{prev.qty+=(r.current_qty||0);if(r.last_movement_at&&(!prev.lastAt||r.last_movement_at>prev.lastAt))prev.lastAt=r.last_movement_at}
         })
         setFgStock(m)
+      }).catch(()=>{})
+    supabase.from("sellable_stock").select("item_id,sellable_qty,released_batch_count").in("item_id",fgItems.map(i=>i.id))
+      .then(({data:rows})=>{
+        if(!rows)return
+        const m={}
+        rows.forEach(r=>{m[r.item_id]={qty:r.sellable_qty||0,batches:r.released_batch_count||0}})
+        setFgSellable(m)
       }).catch(()=>{})
   },[supabase,fgIds])
   const cats=[...new Set(data.inventory.map(i=>i.cat))].filter(c=>c!=="Færdigvare")
@@ -1129,15 +1145,23 @@ function Inventory({data,update,supabase,rawStock={},refreshStock}){
         <span>Færdigvarer</span>
         <span style={{fontSize:10,color:T.acc,fontWeight:500,letterSpacing:".02em",textTransform:"none"}}>Beholdning styres af batch-produktion</span>
       </div>
-      {fgItems.map(item=>{const st=fgStock[item.id];const qty=st?.qty||0;const lastAt=st?.lastAt;return<Card key={item.id} style={{marginBottom:6,padding:12}}>
+      {fgItems.map(item=>{const st=fgStock[item.id];const qty=st?.qty||0;const lastAt=st?.lastAt;const sell=fgSellable[item.id];const sellQty=sell?.qty||0;const diff=qty!==sellQty;return<Card key={item.id} style={{marginBottom:6,padding:12}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
           <div>
             <div style={{fontSize:14,fontWeight:500}}>{item.name}</div>
             <div style={{fontSize:12,color:T.dim}}>{item.id}{lastAt&&` · Seneste bevægelse: ${new Date(lastAt).toLocaleDateString("da-DK",{day:"numeric",month:"short",year:"numeric"})}`}</div>
           </div>
-          <div style={{display:"inline-flex",alignItems:"baseline",gap:5,padding:"6px 14px",borderRadius:8,fontSize:12,fontWeight:600,background:T.card2,color:qty>0?T.ok:T.dim,border:`1px solid ${T.brd}`}}>
-            <span style={{fontSize:18,fontFamily:T.fm,fontWeight:700}}>{qty}</span>
-            <span style={{color:T.dim}}>{item.unit}</span>
+          <div style={{display:"flex",gap:10,alignItems:"center"}}>
+            <div style={{textAlign:"center",padding:"6px 12px",borderRadius:8,fontSize:12,background:T.card2,border:`1px solid ${T.brd}`}}>
+              <div style={{fontSize:10,color:T.dim,marginBottom:2}}>Produceret</div>
+              <span style={{fontSize:16,fontFamily:T.fm,fontWeight:700,color:qty>0?T.mid:T.dim}}>{qty}</span>
+              <span style={{color:T.dim,marginLeft:3}}>{item.unit}</span>
+            </div>
+            <div style={{textAlign:"center",padding:"6px 12px",borderRadius:8,fontSize:12,background:diff?"#1a2e1a":T.card2,border:`1px solid ${diff?T.ok+"55":T.brd}`}}>
+              <div style={{fontSize:10,color:T.dim,marginBottom:2}}>Salgbar</div>
+              <span style={{fontSize:16,fontFamily:T.fm,fontWeight:700,color:sellQty>0?T.ok:T.dim}}>{sellQty}</span>
+              <span style={{color:T.dim,marginLeft:3}}>{item.unit}</span>
+            </div>
           </div>
         </div>
       </Card>})}
@@ -1192,7 +1216,7 @@ function Customers({data,supabase,user}){
         else{await updateCustomer(supabase,form.id,payload)}
       }else{
         const payload={customer_id:form.customer_id||null,order_date:form.order_date||null,delivery_date:form.delivery_date||null,product:form.product||null,qty:parseInt(form.qty)||null,price:parseFloat(form.price)||null,batch_ref:form.batch_ref||null,status:form.status,customer_ref:form.customer_ref||null,internal_note:form.internal_note||null,customer_note:form.customer_note||null,updated_by:user?.id||null}
-        if(form._isNew){await createOrder(supabase,{...payload,created_by:user?.id||null})}
+        if(form._isNew){await createOrder(supabase,{...payload,source:"manual",created_by:user?.id||null})}
         else{await updateOrder(supabase,form.id,payload)}
       }
       setShow(false);await reload()

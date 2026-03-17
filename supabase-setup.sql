@@ -157,6 +157,8 @@ create table if not exists batches (
   best_before         date,
   sensory_eval        jsonb,
   operator_confirmed  boolean   not null default false,
+  -- Shopify integration: release gate
+  released_at      timestamptz,
   created_at       timestamptz not null default now(),
   updated_at       timestamptz not null default now()
 );
@@ -241,7 +243,7 @@ create table if not exists batch_events (
                                check (event_type in (
                                  'created','started','step_completed',
                                  'ccp_recorded','completed','deviation',
-                                 'note','recalled'
+                                 'note','recalled','released'
                                )),
   step_index       integer,
   payload          jsonb,
@@ -374,6 +376,30 @@ create or replace view active_lots as
     end                           as expiry_status
   from lots
   where qty_remaining > 0;
+
+-- Salgbar beholdning per færdigvare.
+-- Kun produce-bevægelser fra frigivne batches tæller.
+-- Waste, adjustment, return medregnes altid.
+create or replace view sellable_stock as
+  select
+    im.item_id,
+    sum(im.qty)                   as sellable_qty,
+    count(distinct case
+      when im.movement_type = 'produce' then im.batch_id
+    end)                          as released_batch_count
+  from inventory_movements im
+  left join batches b on b.id = im.batch_id
+  where
+    im.item_id in (
+      select distinct item_id from inventory_movements
+      where movement_type = 'produce'
+    )
+    and im.movement_type in ('produce','waste','adjustment','return')
+    and (
+      im.movement_type != 'produce'
+      or b.released_at is not null
+    )
+  group by im.item_id;
 
 
 -- ───────────────────────────────────────────
@@ -643,6 +669,9 @@ create table if not exists orders (
   customer_ref    text,
   internal_note   text,
   customer_note   text,
+  -- Shopify integration fields
+  source          text        not null default 'manual',
+  external_order_id text,
   created_by      uuid        references auth.users(id),
   updated_by      uuid        references auth.users(id),
   created_at      timestamptz not null default now(),
@@ -653,6 +682,14 @@ create index if not exists orders_customer_id_idx on orders (customer_id);
 create index if not exists orders_status_idx on orders (status);
 create index if not exists orders_delivery_date_idx on orders (delivery_date);
 create index if not exists orders_order_date_idx on orders (order_date desc);
+
+ALTER TABLE orders DROP CONSTRAINT IF EXISTS orders_source_check;
+ALTER TABLE orders ADD CONSTRAINT orders_source_check
+  CHECK (source IN ('manual','shopify'));
+
+CREATE UNIQUE INDEX IF NOT EXISTS orders_external_order_unique
+  ON orders (source, external_order_id)
+  WHERE external_order_id IS NOT NULL;
 
 alter table orders enable row level security;
 
@@ -701,3 +738,33 @@ ALTER TABLE batches ADD COLUMN IF NOT EXISTS filtration_ok boolean;
 ALTER TABLE batches ADD COLUMN IF NOT EXISTS best_before date;
 ALTER TABLE batches ADD COLUMN IF NOT EXISTS sensory_eval jsonb;
 ALTER TABLE batches ADD COLUMN IF NOT EXISTS operator_confirmed boolean not null default false;
+
+
+-- ═══════════════════════════════════════════
+-- DRYP Phase 4: Shopify Integration Foundation
+-- Adds batch release gate, order source tracking,
+-- and sellable stock view.
+-- Run on live DB where tables already exist.
+-- ═══════════════════════════════════════════
+
+-- Batch release
+ALTER TABLE batches ADD COLUMN IF NOT EXISTS released_at timestamptz;
+
+-- Batch events: add 'released' event type
+ALTER TABLE batch_events DROP CONSTRAINT IF EXISTS batch_events_event_type_check;
+ALTER TABLE batch_events ADD CONSTRAINT batch_events_event_type_check
+  CHECK (event_type IN (
+    'created','started','step_completed',
+    'ccp_recorded','completed','deviation',
+    'note','recalled','released'
+  ));
+
+-- Order webshop fields
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS source text NOT NULL DEFAULT 'manual';
+ALTER TABLE orders DROP CONSTRAINT IF EXISTS orders_source_check;
+ALTER TABLE orders ADD CONSTRAINT orders_source_check
+  CHECK (source IN ('manual','shopify'));
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS external_order_id text;
+CREATE UNIQUE INDEX IF NOT EXISTS orders_external_order_unique
+  ON orders (source, external_order_id)
+  WHERE external_order_id IS NOT NULL;
