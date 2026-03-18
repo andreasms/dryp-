@@ -805,15 +805,15 @@ function HACCPLogs({data,update,supabase,user}){
 
   // Extract payload fields for form
   const payloadFields={
-    cleaning:["area","product","disinfected","ok"],
+    cleaning:["area","cleaningType","product","disinfected","disinfectant","checkedBy","status","issueNote"],
     temps:["time","fridge1","fridge2","prodRoom","withinLimits","action"],
     receiving:["supplier","item","qty","temp","packagingOk","approved"],
     deviations:["devNumber","description","processStep","batchId","batchNumber","immediateAction","rootCause","corrective","preventive","responsible","devStatus","closedDate"],
-    maintenance:["equipment","checkType","status","action","nextCheck"]
+    maintenance:["equipment","maintenanceType","frequency","responsible","issueFound","status","action","pestObservation","nextCheck"]
   }
 
   const newE=async()=>{
-    const ex={cleaning:{area:"",product:"",disinfected:false,ok:false},temps:{time:"08:00",fridge1:"",fridge2:"",prodRoom:"",withinLimits:false,action:""},receiving:{supplier:"",item:"",qty:"",temp:"",packagingOk:false,approved:false},deviations:{devNumber:"",description:"",processStep:"",batchId:"",batchNumber:"",immediateAction:"",rootCause:"",corrective:"",preventive:"",responsible:user?.email?.split("@")[0]||"",devStatus:"open",closedDate:null},maintenance:{equipment:"",checkType:"",status:"OK",action:"",nextCheck:""}}
+    const ex={cleaning:{area:"",cleaningType:"",product:"",disinfected:false,disinfectant:"",checkedBy:"",status:"ok",issueNote:""},temps:{time:"08:00",fridge1:"",fridge2:"",prodRoom:"",withinLimits:false,action:""},receiving:{supplier:"",item:"",qty:"",temp:"",packagingOk:false,approved:false},deviations:{devNumber:"",description:"",processStep:"",batchId:"",batchNumber:"",immediateAction:"",rootCause:"",corrective:"",preventive:"",responsible:user?.email?.split("@")[0]||"",devStatus:"open",closedDate:null},maintenance:{equipment:"",maintenanceType:"forebyggende",frequency:"",responsible:"",issueFound:"",status:"OK",action:"",pestObservation:"",nextCheck:""}}
     // Generate DEV number for new deviations
     if(tab==="deviations"&&supabase){
       try{
@@ -892,19 +892,19 @@ function HACCPLogs({data,update,supabase,user}){
           <span style={{fontFamily:T.fm,fontSize:12,color:T.dim}}>{e.log_date}</span>
           {showCat&&<Badge c={T.acc}>{tabLabel[cat]||cat}</Badge>}
           {e.operator&&<span style={{fontSize:11,color:T.mid}}>{e.operator}</span>}
-          {cat==="cleaning"&&<span>{p.area||"—"}</span>}
+          {cat==="cleaning"&&<><span>{p.area||"—"}</span>{p.cleaningType&&<span style={{fontSize:10,color:T.mid,background:T.accDD,padding:"1px 6px",borderRadius:4}}>{({before:"Før prod.",after:"Efter prod.",periodic:"Periodisk",acute:"Akut"})[p.cleaningType]||p.cleaningType}</span>}{p.checkedBy&&<span style={{fontSize:11,color:T.dim}}>Kontrol: {p.checkedBy}</span>}</>}
           {cat==="temps"&&<span>K1:{p.fridge1||"—"}° K2:{p.fridge2||"—"}°{p.prodRoom?` Lok:${p.prodRoom}°`:""}</span>}
           {cat==="receiving"&&<span>{p.item||"—"} {p.supplier?`← ${p.supplier}`:""}{p.temp?` ${p.temp}°C`:""}</span>}
           {cat==="deviations"&&<><span style={{fontFamily:T.fm,fontSize:11,color:T.warn}}>{p.devNumber||e.log_date}</span><span style={{color:T.red}}>{(p.description||"—").slice(0,50)}</span>{p.responsible&&<span style={{fontSize:11,color:T.dim}}>({p.responsible})</span>}{p.batchNumber&&<span style={{fontSize:11,color:T.mid}}>Batch: {p.batchNumber}</span>}</>}
-          {cat==="maintenance"&&<span>{p.equipment||"—"}</span>}
+          {cat==="maintenance"&&<><span>{p.equipment||"—"}</span>{p.maintenanceType&&<span style={{fontSize:10,color:T.mid,background:T.accDD,padding:"1px 6px",borderRadius:4}}>{({forebyggende:"Forebyg.",korrigerende:"Korrig.",skadedyr:"Skadedyr"})[p.maintenanceType]||p.maintenanceType}</span>}{p.frequency&&<span style={{fontSize:10,color:T.dim}}>{({daglig:"Daglig",ugentlig:"Ugentl.",maanedlig:"Månedl.",kvartalsvis:"Kvartal",aarlig:"Årlig",adhoc:"Ad hoc"})[p.frequency]||p.frequency}</span>}{p.responsible&&<span style={{fontSize:11,color:T.dim}}>({p.responsible})</span>}</>}
           {e.source==="legacy"&&<span style={{fontSize:9,color:T.dim,background:T.accDD,padding:"1px 6px",borderRadius:4}}>arkiv</span>}
         </div>
         <div style={{display:"flex",gap:6,alignItems:"center"}}>
-          {cat==="cleaning"&&<Dot s={p.ok?"ok":"warn"}/>}
+          {cat==="cleaning"&&(()=>{const isOk=p.status==="ok"||(p.status==null&&p.ok===true);return<Badge c={isOk?T.ok:T.warn}>{isOk?"OK":"Afvigelse"}</Badge>})()}
           {cat==="temps"&&<Dot s={p.withinLimits?"ok":"warn"}/>}
           {cat==="receiving"&&<Dot s={p.approved?"ok":"warn"}/>}
           {cat==="deviations"&&(()=>{const closed=p.devStatus==="closed"||(p.devStatus==null&&!!p.closedDate);return<Badge c={closed?T.ok:T.red}>{closed?"Lukket":"Åben"}</Badge>})()}
-          {cat==="maintenance"&&<Badge c={p.status==="OK"?T.ok:T.warn}>{p.status||"—"}</Badge>}
+          {cat==="maintenance"&&<Badge c={p.status==="OK"?T.ok:p.status==="Fejl"?T.red:T.warn}>{p.status||"—"}</Badge>}
           {editable&&<Btn small onClick={()=>editEntry(e)}>Rediger</Btn>}
           {editable&&<Btn small danger onClick={()=>doDelete(e)}>Slet</Btn>}
         </div>
@@ -987,6 +987,28 @@ function HACCPLogs({data,update,supabase,user}){
     {/* Receiving tab info banner */}
     {!isHistory&&tab==="receiving"&&<div style={{background:T.accDD,border:`1px solid ${T.acc}33`,borderRadius:8,padding:"10px 14px",marginBottom:14,fontSize:12,color:T.mid}}>Modtagekontrol registreres via <strong style={{color:T.acc}}>Modtag råvare</strong> i Lager. Alle modtagelser vises her som historik.</div>}
 
+    {/* Maintenance due-awareness panel */}
+    {!isHistory&&tab==="maintenance"&&!loading&&(()=>{
+      const mLogs=sqlLogs.filter(l=>l.category==="maintenance"&&l.payload?.nextCheck)
+      const byEquip={}
+      mLogs.forEach(l=>{const eq=l.payload?.equipment||"Ukendt";if(!byEquip[eq]||l.log_date>byEquip[eq].log_date)byEquip[eq]=l})
+      const td=today()
+      const soon=addDays(td,7)
+      const due=Object.entries(byEquip).map(([eq,l])=>{const nc=l.payload.nextCheck;const freq=l.payload.frequency;return{eq,nc,freq,overdue:nc<td,upcoming:nc>=td&&nc<=soon}}).filter(d=>d.overdue||d.upcoming).sort((a,b)=>a.nc.localeCompare(b.nc))
+      if(due.length===0)return null
+      const freqDa={daglig:"Daglig",ugentlig:"Ugentlig",maanedlig:"Månedlig",kvartalsvis:"Kvartalsvis",aarlig:"Årlig",adhoc:"Ad hoc"}
+      return<div style={{background:T.accDD,border:`1px solid ${T.warn}44`,borderRadius:8,padding:"10px 14px",marginBottom:14}}>
+        <div style={{fontSize:10,fontWeight:700,color:T.warn,textTransform:"uppercase",letterSpacing:".1em",marginBottom:8}}>Kommende vedligehold</div>
+        {due.map(d=><div key={d.eq} style={{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:12,padding:"3px 0"}}>
+          <div style={{display:"flex",alignItems:"center",gap:8}}>
+            <span style={{fontWeight:500}}>{d.eq}</span>
+            {d.freq&&<span style={{fontSize:10,color:T.dim}}>{freqDa[d.freq]||d.freq}</span>}
+          </div>
+          <Badge c={d.overdue?T.red:T.warn}>{d.overdue?"Forfaldent":"Snart"} · {new Date(d.nc+"T12:00:00").toLocaleDateString("da-DK",{day:"numeric",month:"short"})}</Badge>
+        </div>)}
+      </div>
+    })()}
+
     {/* Today + Week: tab-filtered list */}
     {!isHistory&&!loading&&(entries.length===0
       ?<Empty text={period==="today"?"Ingen logs i dag":"Ingen logs denne uge"} action={period==="today"&&tab!=="receiving"?"Tilføj":undefined} onAction={period==="today"&&tab!=="receiving"?newE:undefined}/>
@@ -1009,8 +1031,21 @@ function HACCPLogs({data,update,supabase,user}){
     {/* Entry form modal — same fields as before */}
     {show&&<Modal title={tabs.find(t=>t[0]===tab)?.[1]||"Log"} onClose={()=>setShow(false)}>
       <Field label="Dato"><input type="date" value={form.date} onChange={e=>setForm({...form,date:e.target.value})}/></Field>
-      <Field label="Operatør"><input value={form.operator} onChange={e=>setForm({...form,operator:e.target.value})}/></Field>
-      {tab==="cleaning"&&<><Field label="Område"><select value={form.area} onChange={e=>setForm({...form,area:e.target.value})}><option value="">Vælg...</option>{["Produktionsbord","Infusionskar","Filtreringsudstyr","Aftapningsudstyr","Gulv","Håndvask","Afløb"].map(a=><option key={a}>{a}</option>)}</select></Field><Field label="Middel"><input value={form.product} onChange={e=>setForm({...form,product:e.target.value})}/></Field><Check checked={form.disinfected} onChange={v=>setForm({...form,disinfected:v})} label="Desinficeret"/><div style={{marginTop:8}}><Check checked={form.ok} onChange={v=>setForm({...form,ok:v})} label="Godkendt"/></div></>}
+      <Field label={tab==="cleaning"?"Udført af":"Operatør"}><input value={form.operator} onChange={e=>setForm({...form,operator:e.target.value})}/></Field>
+      {tab==="cleaning"&&<>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+          <Field label="Område / Udstyr"><select value={form.area} onChange={e=>setForm({...form,area:e.target.value})}><option value="">Vælg...</option>{["Produktionsbord","Infusionskar","Filtreringsudstyr","Aftapningsudstyr","Gulv","Håndvask","Afløb","Kølerum","Lagerrum","Transportudstyr","Andet"].map(a=><option key={a}>{a}</option>)}</select></Field>
+          <Field label="Type"><select value={form.cleaningType} onChange={e=>setForm({...form,cleaningType:e.target.value})}><option value="">Vælg...</option><option value="before">Før produktion</option><option value="after">Efter produktion</option><option value="periodic">Periodisk</option><option value="acute">Akut</option></select></Field>
+        </div>
+        <Field label="Rengøringsmiddel"><input value={form.product} onChange={e=>setForm({...form,product:e.target.value})} placeholder="Navn på middel"/></Field>
+        <Check checked={form.disinfected} onChange={v=>setForm({...form,disinfected:v})} label="Desinficeret"/>
+        {form.disinfected&&<Field label="Desinfektionsmiddel"><input value={form.disinfectant||""} onChange={e=>setForm({...form,disinfectant:e.target.value})} placeholder="Navn på desinfektionsmiddel"/></Field>}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginTop:8}}>
+          <Field label="Kontrolleret af"><input value={form.checkedBy||""} onChange={e=>setForm({...form,checkedBy:e.target.value})} placeholder="Hvem har godkendt rengøringen?"/></Field>
+          <Field label="Status"><select value={form.status||"ok"} onChange={e=>setForm({...form,status:e.target.value})}><option value="ok">OK</option><option value="issue">Afvigelse</option></select></Field>
+        </div>
+        {form.status==="issue"&&<Field label="Afvigelsesnote"><textarea value={form.issueNote||""} onChange={e=>setForm({...form,issueNote:e.target.value})} placeholder="Beskriv afvigelsen..." rows={2}/></Field>}
+      </>}
       {tab==="temps"&&<><Field label="Tid"><input type="time" value={form.time} onChange={e=>setForm({...form,time:e.target.value})}/></Field><Field label="Køl 1 (°C) max 5°C"><input type="number" step=".1" value={form.fridge1} onChange={e=>setForm({...form,fridge1:e.target.value})}/></Field><Field label="Køl 2 (°C) max 15°C"><input type="number" step=".1" value={form.fridge2} onChange={e=>setForm({...form,fridge2:e.target.value})}/></Field><Field label="Lokale (°C)"><input type="number" step=".1" value={form.prodRoom} onChange={e=>setForm({...form,prodRoom:e.target.value})}/></Field><Check checked={form.withinLimits} onChange={v=>setForm({...form,withinLimits:v})} label="Inden for grænser"/></>}
       {tab==="receiving"&&<><Field label="Leverandør"><input value={form.supplier} onChange={e=>setForm({...form,supplier:e.target.value})}/></Field><Field label="Vare"><input value={form.item} onChange={e=>setForm({...form,item:e.target.value})}/></Field><Field label="Mængde"><input value={form.qty} onChange={e=>setForm({...form,qty:e.target.value})}/></Field><Field label="Temp (°C)"><input type="number" step=".1" value={form.temp} onChange={e=>setForm({...form,temp:e.target.value})}/></Field><Check checked={form.packagingOk} onChange={v=>setForm({...form,packagingOk:v})} label="Emballage OK"/><div style={{marginTop:8}}><Check checked={form.approved} onChange={v=>setForm({...form,approved:v})} label="Godkendt"/></div></>}
       {tab==="deviations"&&<>
@@ -1031,7 +1066,23 @@ function HACCPLogs({data,update,supabase,user}){
         </div>
         {form.devStatus==="closed"&&<Field label="Lukkedato"><input type="date" value={form.closedDate||""} onChange={e=>setForm({...form,closedDate:e.target.value})}/></Field>}
       </>}
-      {tab==="maintenance"&&<><Field label="Udstyr"><input value={form.equipment} onChange={e=>setForm({...form,equipment:e.target.value})}/></Field><Field label="Type"><input value={form.checkType} onChange={e=>setForm({...form,checkType:e.target.value})}/></Field><Field label="Status"><select value={form.status} onChange={e=>setForm({...form,status:e.target.value})}><option>OK</option><option>Fejl</option></select></Field><Field label="Handling"><textarea value={form.action} onChange={e=>setForm({...form,action:e.target.value})}/></Field><Field label="Næste kontrol"><input type="date" value={form.nextCheck} onChange={e=>setForm({...form,nextCheck:e.target.value})}/></Field></>}
+      {tab==="maintenance"&&<>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+          <Field label="Udstyr"><select value={form.equipment} onChange={e=>setForm({...form,equipment:e.target.value})}><option value="">Vælg...</option>{["Infusionskar","Filtreringsudstyr","Aftapningsmaskine","Køleenhed","Transportbånd","Pumpe","Ventilation","Skadedyrsfælder","Andet"].map(a=><option key={a}>{a}</option>)}</select></Field>
+          <Field label="Vedligeholdelsestype"><select value={form.maintenanceType||""} onChange={e=>setForm({...form,maintenanceType:e.target.value})}><option value="forebyggende">Forebyggende</option><option value="korrigerende">Korrigerende</option><option value="skadedyr">Skadedyrskontrol</option></select></Field>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12}}>
+          <Field label="Frekvens"><select value={form.frequency||""} onChange={e=>setForm({...form,frequency:e.target.value})}><option value="">Vælg...</option><option value="daglig">Daglig</option><option value="ugentlig">Ugentlig</option><option value="maanedlig">Månedlig</option><option value="kvartalsvis">Kvartalsvis</option><option value="aarlig">Årlig</option><option value="adhoc">Ad hoc</option></select></Field>
+          <Field label="Ansvarlig"><input value={form.responsible||""} onChange={e=>setForm({...form,responsible:e.target.value})} placeholder="Hvem er ansvarlig?"/></Field>
+          <Field label="Problem fundet"><select value={form.issueFound||""} onChange={e=>setForm({...form,issueFound:e.target.value})}><option value="">Vælg...</option><option value="nej">Nej</option><option value="ja">Ja</option></select></Field>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+          <Field label="Status"><select value={form.status} onChange={e=>setForm({...form,status:e.target.value})}><option value="OK">OK</option><option value="Fejl">Fejl</option><option value="Opfølgning">Kræver opfølgning</option></select></Field>
+          <Field label="Næste kontrol"><input type="date" value={form.nextCheck} onChange={e=>setForm({...form,nextCheck:e.target.value})}/></Field>
+        </div>
+        <Field label="Handling / Observation"><textarea value={form.action} onChange={e=>setForm({...form,action:e.target.value})} placeholder="Beskriv hvad der blev gjort eller observeret..." rows={2}/></Field>
+        {form.maintenanceType==="skadedyr"&&<Field label="Skadedyrsobservation"><textarea value={form.pestObservation||""} onChange={e=>setForm({...form,pestObservation:e.target.value})} placeholder="Aktivitet i fælder, spor, observationer..." rows={2}/></Field>}
+      </>}
       <Field label="Noter"><textarea value={form.notes} onChange={e=>setForm({...form,notes:e.target.value})}/></Field>
       <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn onClick={()=>setShow(false)}>Annuller</Btn><Btn primary onClick={doSave} disabled={saving}>{saving?"Gemmer...":"✓ Gem"}</Btn></div>
     </Modal>}
