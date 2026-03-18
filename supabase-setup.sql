@@ -191,6 +191,9 @@ create table if not exists lots (
   unit             text        not null,
   cost_per_unit    numeric     check (cost_per_unit >= 0),
   certificate_ref  text,
+  -- Receiving control status (SOP-04)
+  receiving_status text        not null default 'godkendt'
+                               check (receiving_status in ('godkendt','karantaene','afvist')),
   notes            text,
   created_at       timestamptz not null default now(),
   constraint lots_remaining_lte_received check (qty_remaining <= qty_received)
@@ -768,3 +771,15 @@ ALTER TABLE orders ADD COLUMN IF NOT EXISTS external_order_id text;
 CREATE UNIQUE INDEX IF NOT EXISTS orders_external_order_unique
   ON orders (source, external_order_id)
   WHERE external_order_id IS NOT NULL;
+
+
+-- ═══════════════════════════════════════════
+-- DRYP Phase 5: Unified Receiving Control
+-- Adds receiving_status to lots for SOP-04
+-- compliance. Godkendt/Karantæne/Afvist.
+-- Run on live DB where lots table already exists.
+-- ═══════════════════════════════════════════
+ALTER TABLE lots ADD COLUMN IF NOT EXISTS receiving_status text NOT NULL DEFAULT 'godkendt';
+ALTER TABLE lots DROP CONSTRAINT IF EXISTS lots_receiving_status_check;
+ALTER TABLE lots ADD CONSTRAINT lots_receiving_status_check
+  CHECK (receiving_status IN ('godkendt','karantaene','afvist'));

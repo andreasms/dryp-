@@ -694,13 +694,13 @@ function Batches({data,update,supabase,batchNav,setBatchNav,refreshStock}){
       <Field label="Lot">
         <select value={newLot.lotId} onChange={e=>setNewLot({...newLot,lotId:e.target.value})} disabled={!lotItemId}>
           <option value="">Vælg lot...</option>
-          {activeLots.filter(l=>l.item_id===lotItemId).map(l=><option key={l.id} value={l.id}>{l.lot_number} · {l.qty_remaining} {l.unit} tilbage</option>)}
+          {activeLots.filter(l=>l.item_id===lotItemId&&l.receiving_status==="godkendt").map(l=><option key={l.id} value={l.id}>{l.lot_number} · {l.qty_remaining} {l.unit} tilbage</option>)}
         </select>
       </Field>
       <Field label={`Mængde brugt${activeLots.find(l=>l.id===newLot.lotId)?.unit?` (${activeLots.find(l=>l.id===newLot.lotId).unit})`:""}`}>
         <input type="number" step=".01" min="0" value={newLot.qtyUsed} onChange={e=>setNewLot({...newLot,qtyUsed:e.target.value})} placeholder="0.00"/>
       </Field>
-      {activeLots.filter(l=>l.item_id===lotItemId).length===0&&lotItemId&&<div style={{fontSize:12,color:T.warn,marginBottom:12,padding:"8px 12px",background:T.input,borderRadius:8}}>Ingen aktive lots for denne råvare. Opret et lot under Lager først.</div>}
+      {activeLots.filter(l=>l.item_id===lotItemId&&l.receiving_status==="godkendt").length===0&&lotItemId&&<div style={{fontSize:12,color:T.warn,marginBottom:12,padding:"8px 12px",background:T.input,borderRadius:8}}>Ingen godkendte lots for denne råvare — tjek Lager.</div>}
       <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
         <Btn onClick={()=>setShowLotModal(false)}>Annuller</Btn>
         <Btn primary disabled={savingLot||!newLot.lotId||!newLot.qtyUsed} onClick={async()=>{await addLotUsage();setShowLotModal(false)}}>{savingLot?"Gemmer...":"✓ Registrér"}</Btn>
@@ -959,7 +959,7 @@ function HACCPLogs({data,update,supabase,user}){
 
   return<div style={{maxWidth:960}}>
     <SH title="HACCP Logs" desc="Egenkontrol-dokumentation" tip={tipMap[tab]}>
-      {period==="today"&&<Btn primary onClick={newE}><Plus s={12} c={T.bg}/> Ny log</Btn>}
+      {period==="today"&&tab!=="receiving"&&<Btn primary onClick={newE}><Plus s={12} c={T.bg}/> Ny log</Btn>}
     </SH>
 
     {/* Period selector */}
@@ -984,9 +984,12 @@ function HACCPLogs({data,update,supabase,user}){
 
     {loading&&<div style={{color:T.dim,fontSize:13,padding:20}}>Indlæser...</div>}
 
+    {/* Receiving tab info banner */}
+    {!isHistory&&tab==="receiving"&&<div style={{background:T.accDD,border:`1px solid ${T.acc}33`,borderRadius:8,padding:"10px 14px",marginBottom:14,fontSize:12,color:T.mid}}>Modtagekontrol registreres via <strong style={{color:T.acc}}>Modtag råvare</strong> i Lager. Alle modtagelser vises her som historik.</div>}
+
     {/* Today + Week: tab-filtered list */}
     {!isHistory&&!loading&&(entries.length===0
-      ?<Empty text={period==="today"?"Ingen logs i dag":"Ingen logs denne uge"} action={period==="today"?"Tilføj":undefined} onAction={period==="today"?newE:undefined}/>
+      ?<Empty text={period==="today"?"Ingen logs i dag":"Ingen logs denne uge"} action={period==="today"&&tab!=="receiving"?"Tilføj":undefined} onAction={period==="today"&&tab!=="receiving"?newE:undefined}/>
       :entries.map(e=>renderRow(e))
     )}
 
@@ -1036,7 +1039,7 @@ function HACCPLogs({data,update,supabase,user}){
 }
 
 // ═══ INVENTORY, PLANNING, CUSTOMERS, ECONOMY — kept from v2 with bigger fonts ═══
-function Inventory({data,update,supabase,rawStock={},refreshStock}){
+function Inventory({data,update,supabase,user,rawStock={},refreshStock}){
   const[show,setShow]=useState(false);const[form,setForm]=useState({});const[eId,setEId]=useState(null);const[qv,setQv]=useState("")
   const[showLot,setShowLot]=useState(false);const[lotForm,setLotForm]=useState({});const[savingLot,setSavingLot]=useState(false)
   const[activeLots,setActiveLots]=useState([])
@@ -1070,36 +1073,82 @@ function Inventory({data,update,supabase,rawStock={},refreshStock}){
   const cats=[...new Set(data.inventory.map(i=>i.cat))].filter(c=>c!=="Færdigvare")
   const rawItems=(data.inventory||[]).filter(i=>i.cat==="Råvare")
 
-  const saveLot=async()=>{
-    if(!lotForm.item_id||!lotForm.lot_number||!lotForm.qty_received)return
+  const[recErr,setRecErr]=useState("")
+  const saveReceiving=async()=>{
+    setRecErr("")
+    if(!lotForm.item_id||!lotForm.lot_number||!lotForm.qty_received){setRecErr("Udfyld råvare, lot-nummer og mængde");return}
+    if(!lotForm.packaging_ok||!lotForm.visual_ok){setRecErr("Vælg emballage- og visuel kontrol før gem");return}
+    if(!lotForm.receiving_status){setRecErr("Vælg modtageresultat");return}
     setSavingLot(true)
     try{
-      const{data:{user}}=await supabase.auth.getUser()
+      const{data:{user:u}}=await supabase.auth.getUser()
       const qty=parseFloat(lotForm.qty_received)||0
       const unit=lotForm.item_unit||(rawItems.find(i=>i.id===lotForm.item_id)?.unit)||"kg"
+      const isAfvist=lotForm.receiving_status==="afvist"
+      // 1. Create lot
       const lot=await createLot(supabase,{
-        user_id:user.id,
+        user_id:u.id,
         item_id:lotForm.item_id,
         lot_number:lotForm.lot_number,
         supplier:lotForm.supplier||null,
         received_date:lotForm.received_date||null,
         expiry_date:lotForm.expiry_date||null,
         qty_received:qty,
-        qty_remaining:qty,
+        qty_remaining:isAfvist?0:qty,
         unit,
+        receiving_status:lotForm.receiving_status,
       })
+      // 2. Receipt movement (documents physical arrival)
       await recordMovement(supabase,{
-        user_id:user.id,
+        user_id:u.id,
         item_id:lotForm.item_id,
         lot_id:lot.id,
         movement_type:"receipt",
         qty,
         unit,
         reference:lotForm.lot_number,
-        notes:"Lot modtaget",
+        notes:isAfvist?"Modtaget — afvist ved modtagekontrol":"Lot modtaget",
+      })
+      // 2b. Waste movement for rejected lots (zeroes inventory)
+      if(isAfvist){
+        await recordMovement(supabase,{
+          user_id:u.id,
+          item_id:lotForm.item_id,
+          lot_id:lot.id,
+          movement_type:"waste",
+          qty:-qty,
+          unit,
+          reference:lotForm.lot_number,
+          notes:"Afvist ved modtagekontrol",
+        })
+      }
+      // 3. HACCP receiving log
+      const itemName=rawItems.find(i=>i.id===lotForm.item_id)?.name||lotForm.item_id
+      await createHaccpLog(supabase,{
+        user_id:u.id,
+        category:"receiving",
+        log_date:lotForm.received_date||today(),
+        operator:lotForm.operator||user?.email?.split("@")[0]||"",
+        payload:{
+          supplier:lotForm.supplier||"",
+          item:itemName,
+          item_id:lotForm.item_id,
+          qty:String(qty),
+          unit,
+          lot_number:lotForm.lot_number,
+          lot_id:lot.id,
+          temp:lotForm.temp||"",
+          packagingOk:lotForm.packaging_ok==="ok",
+          visualOk:lotForm.visual_ok==="ok",
+          conditionNote:lotForm.condition_note||"",
+          receivingResult:lotForm.receiving_status,
+          expiry_date:lotForm.expiry_date||"",
+          approved:lotForm.receiving_status==="godkendt",
+        },
+        notes:lotForm.condition_note||"",
       })
       setShowLot(false);setLotForm({});loadLots();if(refreshStock)refreshStock()
-    }catch(err){console.error("[DRYP] createLot failed:",err);alert("Fejl ved oprettelse af lot: "+err.message)}
+    }catch(err){console.error("[DRYP] saveReceiving failed:",err);alert("Fejl ved modtagelse: "+err.message)}
     setSavingLot(false)
   }
 
@@ -1107,7 +1156,7 @@ function Inventory({data,update,supabase,rawStock={},refreshStock}){
     <SH title="Lagerbeholdning" desc="Varer og råvare-lots — klik på antal for hurtig-edit" tip="Her registreres to ting: 1) Lagervarer — de faste varer med minimumsbeholdning. 2) Lots — specifikke leverancer af råvarer med lottnummer og mængde. Lots bruges til sporbarhed i Batches.">
       <Btn primary onClick={()=>{setForm({id:uid(),name:"",unit:"stk",qty:0,min:0,cat:"Råvare",leadDays:7,supplier:"",costPer:0});setShow(true)}}><Plus s={12} c={T.bg}/> Tilføj vare</Btn>
     </SH>
-    {cats.map(cat=><div key={cat} style={{marginBottom:22}}><div style={{fontSize:11,fontWeight:700,color:T.dim,letterSpacing:".1em",textTransform:"uppercase",marginBottom:10,paddingBottom:4,borderBottom:`1px solid ${T.brdL}`,display:"flex",alignItems:"center",justifyContent:"space-between"}}><span>{cat}</span>{cat==="Råvare"&&<span style={{fontSize:10,color:T.acc,fontWeight:500,letterSpacing:".02em",textTransform:"none"}}>Opret lots for at spore råvareforbrug i produktion</span>}</div>
+    {cats.map(cat=><div key={cat} style={{marginBottom:22}}><div style={{fontSize:11,fontWeight:700,color:T.dim,letterSpacing:".1em",textTransform:"uppercase",marginBottom:10,paddingBottom:4,borderBottom:`1px solid ${T.brdL}`,display:"flex",alignItems:"center",justifyContent:"space-between"}}><span>{cat}</span>{cat==="Råvare"&&<span style={{fontSize:10,color:T.acc,fontWeight:500,letterSpacing:".02em",textTransform:"none"}}>Registrér modtagelse for at spore råvareforbrug i produktion</span>}</div>
       {data.inventory.filter(i=>i.cat===cat).map(item=>{const sq=getStock(item,rawStock);const hasSql=item.cat==="Råvare"&&rawStock[item.id]!=null;const low=sq<item.min;return<Card key={item.id} style={{marginBottom:6,padding:12}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><div><div style={{fontSize:14,fontWeight:500}}>{low&&<span style={{color:T.red}}>⚠ </span>}{item.name}</div><div style={{fontSize:12,color:T.dim}}>Min: {item.min} · Lead: {item.leadDays}d{item.supplier&&` · ${item.supplier}`} · {fk(item.costPer)}/{item.unit}{hasSql&&<span style={{color:T.acc,marginLeft:6}} title="Beregnet fra lot-bevægelser">· lot-baseret</span>}</div></div>
           <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",flexShrink:0}}>
@@ -1119,7 +1168,7 @@ function Inventory({data,update,supabase,rawStock={},refreshStock}){
               ?<div style={{display:"flex",gap:6,alignItems:"center"}}><input type="number" value={qv} onChange={e=>setQv(e.target.value)} style={{width:70}} autoFocus onKeyDown={e=>{if(e.key==="Enter"){update("inventory",p=>p.map(i=>i.id===item.id?{...i,qty:parseFloat(qv)||0}:i));setEId(null)}}}/><Btn small primary onClick={()=>{update("inventory",p=>p.map(i=>i.id===item.id?{...i,qty:parseFloat(qv)||0}:i));setEId(null)}}>Gem</Btn><Btn small onClick={()=>setEId(null)}>Annuller</Btn></div>
               :<>
                 {!hasSql&&<Btn onClick={()=>{setEId(item.id);setQv(String(sq))}}>Ret antal</Btn>}
-                {item.cat==="Råvare"&&<Btn onClick={()=>{setLotForm({item_id:item.id,item_name:item.name,item_unit:item.unit,lot_number:"",supplier:"",qty_received:"",received_date:today(),expiry_date:""});setShowLot(true)}} style={{background:T.accD,color:T.acc,border:`1px solid ${T.acc}44`}}>Opret lot</Btn>}
+                {item.cat==="Råvare"&&<Btn onClick={()=>{setLotForm({item_id:item.id,item_name:item.name,item_unit:item.unit,lot_number:"",supplier:"",qty_received:"",received_date:today(),expiry_date:"",temp:"",packaging_ok:"",visual_ok:"",condition_note:"",receiving_status:"godkendt",operator:user?.email?.split("@")[0]||""});setRecErr("");setShowLot(true)}} style={{background:T.accD,color:T.acc,border:`1px solid ${T.acc}44`}}>Modtag råvare</Btn>}
                 <Btn onClick={()=>{setForm(item);setShow(true)}}>Rediger vare</Btn>
                 <Btn danger onClick={()=>{if(confirm(`Slet "${item.name}"?`))update("inventory",p=>p.filter(x=>x.id!==item.id))}}>Slet</Btn>
               </>}
@@ -1128,9 +1177,13 @@ function Inventory({data,update,supabase,rawStock={},refreshStock}){
         {item.cat==="Råvare"&&activeLots.filter(l=>l.item_id===item.id).length>0&&<div style={{marginTop:8,paddingTop:8,borderTop:`1px solid ${T.brdL}`}}>
           <div style={{fontSize:10,fontWeight:600,color:T.dim,textTransform:"uppercase",letterSpacing:".06em",marginBottom:4}}>Aktive lots</div>
           {activeLots.filter(l=>l.item_id===item.id).map(l=><div key={l.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:12,padding:"3px 0",borderBottom:`1px solid ${T.brdL}22`}}>
-            <span style={{fontWeight:500}}>{l.lot_number}</span>
+            <div style={{display:"flex",alignItems:"center",gap:8}}>
+              <span style={{fontWeight:500}}>{l.lot_number}</span>
+              <Badge c={l.receiving_status==="karantaene"?T.warn:T.ok}>{l.receiving_status==="karantaene"?"Karantæne":"Godkendt"}</Badge>
+            </div>
             <div style={{display:"flex",gap:12,alignItems:"center",color:T.dim}}>
               <span style={{fontFamily:T.fm,color:T.acc}}>{l.qty_remaining} {l.unit}</span>
+              {l.supplier&&<span>{l.supplier}</span>}
               <span>Modtaget {l.received_date||"—"}</span>
               {l.expiry_date&&<span style={{color:new Date(l.expiry_date)<new Date()?T.red:T.mid}}>Udløb {l.expiry_date}</span>}
             </div>
@@ -1167,17 +1220,41 @@ function Inventory({data,update,supabase,rawStock={},refreshStock}){
       </Card>})}
     </div>}
 
-    {showLot&&<Modal title={`Opret lot · ${lotForm.item_name||"—"}`} onClose={()=>setShowLot(false)}>
+    {showLot&&<Modal title={`Modtag råvare · ${lotForm.item_name||"—"}`} onClose={()=>setShowLot(false)} wide>
+      {recErr&&<div style={{background:"#3a1c1c",border:`1px solid ${T.red}`,borderRadius:6,padding:"8px 12px",marginBottom:12,fontSize:13,color:"#ff9b9b"}}>{recErr}</div>}
       <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:18,padding:"10px 14px",background:T.accDD,borderRadius:10,border:`1px solid ${T.acc}33`}}>
         <div style={{fontSize:22}}>📦</div>
         <div><div style={{fontSize:14,fontWeight:600}}>{lotForm.item_name}</div><div style={{fontSize:12,color:T.mid}}>Enhed: {lotForm.item_unit||"—"}</div></div>
       </div>
-      <Field label="Lot-nummer" tip="Leverandørens lot- eller batchnummer fra leveringsdokumentet"><input value={lotForm.lot_number} onChange={e=>setLotForm({...lotForm,lot_number:e.target.value})} placeholder="F.eks. LOT-2024-001" autoFocus/></Field>
-      <Field label={`Modtaget antal (${lotForm.item_unit||"enheder"})`}><input type="number" step="any" min="0" value={lotForm.qty_received} onChange={e=>setLotForm({...lotForm,qty_received:e.target.value})} placeholder="0"/></Field>
-      <Field label="Leverandør"><input value={lotForm.supplier} onChange={e=>setLotForm({...lotForm,supplier:e.target.value})} placeholder="Valgfri"/></Field>
-      <Field label="Modtagelsesdato"><input type="date" value={lotForm.received_date} onChange={e=>setLotForm({...lotForm,received_date:e.target.value})}/></Field>
-      <Field label="Udløbsdato" tip="Valgfri — bruges til FEFO-sortering og udløbsadvarsler i batch-produktion"><input type="date" value={lotForm.expiry_date} onChange={e=>setLotForm({...lotForm,expiry_date:e.target.value})}/></Field>
-      <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:6}}><Btn onClick={()=>setShowLot(false)}>Annuller</Btn><Btn primary onClick={saveLot} disabled={savingLot||!lotForm.lot_number||!lotForm.qty_received}>{savingLot?"Gemmer...":"✓ Opret lot"}</Btn></div>
+
+      <div style={{fontSize:10,fontWeight:700,color:T.dim,textTransform:"uppercase",letterSpacing:".1em",marginBottom:10}}>Lot-oplysninger</div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+        <Field label="Leverandør"><input value={lotForm.supplier} onChange={e=>setLotForm({...lotForm,supplier:e.target.value})} placeholder="Leverandørnavn"/></Field>
+        <Field label="Leverandørens lot-nummer" tip="Lot- eller batchnummer fra leveringsdokumentet"><input value={lotForm.lot_number} onChange={e=>setLotForm({...lotForm,lot_number:e.target.value})} placeholder="F.eks. LOT-2024-001" autoFocus/></Field>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12}}>
+        <Field label={`Mængde (${lotForm.item_unit||"enheder"})`}><input type="number" step="any" min="0" value={lotForm.qty_received} onChange={e=>setLotForm({...lotForm,qty_received:e.target.value})} placeholder="0"/></Field>
+        <Field label="Modtagelsesdato"><input type="date" value={lotForm.received_date} onChange={e=>setLotForm({...lotForm,received_date:e.target.value})}/></Field>
+        <Field label="Holdbar til"><input type="date" value={lotForm.expiry_date} onChange={e=>setLotForm({...lotForm,expiry_date:e.target.value})}/></Field>
+      </div>
+
+      <div style={{borderTop:`1px solid ${T.brdL}`,paddingTop:14,marginTop:10,marginBottom:10}}>
+        <div style={{fontSize:10,fontWeight:700,color:T.dim,textTransform:"uppercase",letterSpacing:".1em",marginBottom:10}}>Modtagekontrol</div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12}}>
+          <Field label="Temperatur (°C)"><input type="number" step=".1" value={lotForm.temp} onChange={e=>setLotForm({...lotForm,temp:e.target.value})} placeholder="°C"/></Field>
+          <Field label="Emballage intakt"><select value={lotForm.packaging_ok} onChange={e=>setLotForm({...lotForm,packaging_ok:e.target.value})}><option value="">Vælg...</option><option value="ok">OK</option><option value="ikke_ok">Ikke OK</option></select></Field>
+          <Field label="Visuel kontrol"><select value={lotForm.visual_ok} onChange={e=>setLotForm({...lotForm,visual_ok:e.target.value})}><option value="">Vælg...</option><option value="ok">OK</option><option value="ikke_ok">Ikke OK</option></select></Field>
+        </div>
+        <Field label="Lugt / farve / tilstand"><input value={lotForm.condition_note} onChange={e=>setLotForm({...lotForm,condition_note:e.target.value})} placeholder="Valgfri note om varens tilstand"/></Field>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+          <Field label="Modtaget af"><input value={lotForm.operator} onChange={e=>setLotForm({...lotForm,operator:e.target.value})}/></Field>
+          <Field label="Resultat"><select value={lotForm.receiving_status} onChange={e=>setLotForm({...lotForm,receiving_status:e.target.value})}><option value="godkendt">Godkendt</option><option value="karantaene">Karantæne</option><option value="afvist">Afvist</option></select></Field>
+        </div>
+      </div>
+
+      {lotForm.receiving_status==="afvist"&&<div style={{background:"#3a2e1c",border:`1px solid ${T.warn}`,borderRadius:8,padding:"10px 14px",marginBottom:12,fontSize:12,color:"#ffd080"}}>Afvist råvare registreres for sporbarhed, men beholdningen nulstilles. Varen vil ikke være tilgængelig på lager eller til produktion.</div>}
+
+      <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:6}}><Btn onClick={()=>setShowLot(false)}>Annuller</Btn><Btn primary onClick={saveReceiving} disabled={savingLot}>{savingLot?"Gemmer...":"✓ Registrér modtagelse"}</Btn></div>
     </Modal>}
     {show&&<Modal title={form.name||"Ny vare"} onClose={()=>setShow(false)}><Field label="Navn"><input value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/></Field><Field label="Kategori" tip="'Råvare' bruges i opskriftkalkulator. Alt andet regnes som emballage."><select value={form.cat} onChange={e=>setForm({...form,cat:e.target.value})}><option>Råvare</option><option>Emballage</option><option>Andet</option></select></Field><Field label="Enhed"><input value={form.unit} onChange={e=>setForm({...form,unit:e.target.value})}/></Field><Field label="Beholdning"><input type="number" value={form.qty} onChange={e=>setForm({...form,qty:parseFloat(e.target.value)||0})}/></Field><Field label="Minimum"><input type="number" value={form.min} onChange={e=>setForm({...form,min:parseFloat(e.target.value)||0})}/></Field><Field label="Lead time (dage)" tip="Antal dage fra bestilling til levering"><input type="number" value={form.leadDays} onChange={e=>setForm({...form,leadDays:parseInt(e.target.value)||0})}/></Field><Field label="Leverandør"><input value={form.supplier} onChange={e=>setForm({...form,supplier:e.target.value})}/></Field><Field label="Pris pr. enhed"><input type="number" step=".1" value={form.costPer} onChange={e=>setForm({...form,costPer:parseFloat(e.target.value)||0})}/></Field><div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn onClick={()=>setShow(false)}>Annuller</Btn><Btn primary onClick={()=>{update("inventory",p=>p.find(i=>i.id===form.id)?p.map(i=>i.id===form.id?form:i):[...p,form]);setShow(false)}}>✓ Gem</Btn></div></Modal>}
   </div>
