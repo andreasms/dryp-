@@ -1334,8 +1334,20 @@ function Customers({data,supabase,user}){
   const[customers,setCustomers]=useState([]);const[orders,setOrders]=useState([]);const[loading,setLoading]=useState(true)
   const[sqlBatches,setSqlBatches]=useState([])
   const recipes=(data.recipes||[]).filter(r=>r.active)
+  const allRecipes=data.recipes||[]
   const reload=async()=>{if(!supabase)return;try{const[c,o,b]=await Promise.all([getCustomers(supabase),getOrders(supabase),getBatches(supabase)]);setCustomers(c||[]);setOrders(o||[]);setSqlBatches(b||[])}catch(e){console.error('[DRYP] customers/orders load failed:',e)}finally{setLoading(false)}}
   useEffect(()=>{reload()},[supabase])
+
+  // Cost model reuse from Package A — uses allRecipes for historical order matching
+  const eco=(data.prices||{}).economics||{}
+  const ecoLabel=eco.label_cost_per_unit||0;const ecoFreight=eco.freight_cost_per_unit||0
+  const ecoWastePct=eco.waste_pct||0;const ecoLaborUnit=(eco.default_batch_size||0)>0?(eco.labor_cost_per_batch||0)/(eco.default_batch_size):0
+  const costRaw=(rid)=>{const r=allRecipes.find(x=>x.id===rid);if(!r)return 0;return(r.bom||[]).filter(b=>{const inv=data.inventory.find(x=>x.id===b.itemId);return inv?.cat==="Råvare"}).reduce((s,b)=>{const inv=data.inventory.find(x=>x.id===b.itemId);return s+(inv?.costPer||0)*b.qty},0)}
+  const costPack=(rid)=>{const r=allRecipes.find(x=>x.id===rid);if(!r)return 0;return(r.bom||[]).filter(b=>{const inv=data.inventory.find(x=>x.id===b.itemId);return inv?.cat!=="Råvare"}).reduce((s,b)=>{const inv=data.inventory.find(x=>x.id===b.itemId);return s+(inv?.costPer||0)*b.qty},0)}
+  const variableCost=(rid)=>{const raw=costRaw(rid);return raw+costPack(rid)+ecoLabel+ecoFreight+(raw*ecoWastePct/100)+ecoLaborUnit}
+  const recipeForProduct=(product)=>allRecipes.find(r=>r.name===product)
+  const orderMargin=(o)=>{const r=recipeForProduct(o.product);if(!r)return null;const qty=parseInt(o.qty)||0;const price=parseFloat(o.price)||0;const rev=price*qty;const cost=variableCost(r.id)*qty;return{rev,cost,margin:rev-cost,marginPct:rev>0?Math.round((rev-cost)/rev*100):null,perUnit:qty>0?price-variableCost(r.id):null}}
+  const customerEcon=(custId)=>{const co=orders.filter(o=>o.customer_id===custId);if(co.length===0)return{count:0,rev:0,cost:0,margin:0,avg:0,pct:null,incomplete:false};let rev=0,cost=0,incomplete=false;co.forEach(o=>{const qty=parseInt(o.qty)||0;const price=parseFloat(o.price)||0;rev+=price*qty;const r=recipeForProduct(o.product);if(r)cost+=variableCost(r.id)*qty;else incomplete=true});return{count:co.length,rev,cost,margin:rev-cost,avg:co.length>0?rev/co.length:0,pct:rev>0?Math.round((rev-cost)/rev*100):null,incomplete}}
   const doSave=async()=>{
     try{
       if(ft==="c"){
@@ -1368,7 +1380,7 @@ function Customers({data,supabase,user}){
   })
   if(loading)return<div style={{textAlign:"center",padding:60,color:T.dim}}>Indlæser kunder og ordrer...</div>
   return<div style={{maxWidth:1060}}>
-    <Tabs tabs={[["customers","Kunder"],["orders","Ordrer"]]} active={tab} onChange={setTab} right={<Btn primary small onClick={()=>{if(tab==="customers")newCustomer();else newOrder()}}><Plus s={11} c={T.bg}/> {tab==="customers"?"Ny kunde":"Ny ordre"}</Btn>}/>
+    <Tabs tabs={[["customers","Kunder"],["orders","Ordrer"],["econ","Økonomi"]]} active={tab} onChange={setTab} right={tab!=="econ"&&<Btn primary small onClick={()=>{if(tab==="customers")newCustomer();else newOrder()}}><Plus s={11} c={T.bg}/> {tab==="customers"?"Ny kunde":"Ny ordre"}</Btn>}/>
 
     {/* ─── KUNDER ─── */}
     {tab==="customers"&&(customers.length===0?<Empty text="Ingen kunder endnu" action="Tilføj kunde" onAction={newCustomer}/>:customers.map(c=><Card key={c.id} style={{marginBottom:6,padding:12}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><div style={{display:"flex",alignItems:"center",gap:10}}><div style={{width:32,height:32,borderRadius:"50%",background:T.accD,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:700,color:T.acc}}>{c.name?.charAt(0)?.toUpperCase()}</div><div><div style={{fontSize:13,fontWeight:500}}>{c.name}</div><div style={{fontSize:12,color:T.dim}}>{c.type}{c.email&&` · ${c.email}`}{c.phone&&` · ${c.phone}`}</div></div></div><div style={{display:"flex",gap:6,flexShrink:0}}><Badge c={c.status==="aktiv"?T.ok:c.status==="lead"?T.acc:T.dim}>{c.status}</Badge><Btn small onClick={()=>{setFt("c");setForm({...c});setShow(true)}}>Rediger</Btn><Btn small danger onClick={()=>handleDeleteCustomer(c)}>Slet</Btn></div></div></Card>))}
@@ -1391,6 +1403,7 @@ function Customers({data,supabase,user}){
               </div>
               <div style={{fontSize:12,color:T.dim,marginTop:3}}>
                 {o.product} · {o.qty} stk{total>0&&<span style={{color:T.mid,marginLeft:6}}>{fk(Math.round(total))}</span>}
+                {(()=>{const m=orderMargin(o);return m&&m.perUnit!=null?<span style={{marginLeft:8,fontSize:11,color:m.perUnit>=0?T.ok:T.red,fontFamily:T.fm}}>DB: ~{m.perUnit.toFixed(0)} kr/stk</span>:null})()}
                 {o.delivery_date&&<span style={{marginLeft:8}}>Levering: <span style={{color:isUrgent?T.red:T.txt,fontWeight:isUrgent?600:400}}>{o.delivery_date}</span></span>}
                 {!o.delivery_date&&<span style={{marginLeft:8,color:T.warn}}>Ingen leveringsdato</span>}
               </div>
@@ -1407,6 +1420,61 @@ function Customers({data,supabase,user}){
         </Card>
       })}
     </div>)}
+
+    {/* ─── KUNDEØKONOMI ─── */}
+    {tab==="econ"&&<div>
+      <div style={{background:T.accDD,border:`1px solid ${T.acc}33`,borderRadius:8,padding:"10px 14px",marginBottom:16,fontSize:12,color:T.mid,lineHeight:1.5}}>
+        Estimat baseret på omkostningsmodellen i Økonomi — ikke regnskabsdata. Margin beregnes ud fra variable produktomkostninger pr. flaske.
+      </div>
+      {customers.length===0?<Empty text="Ingen kunder endnu"/>:
+        [...customers].sort((a,b)=>{const ea=customerEcon(a.id);const eb=customerEcon(b.id);return eb.rev-ea.rev}).map(c=>{
+          const e=customerEcon(c.id)
+          const custOrders=orders.filter(o=>o.customer_id===c.id).sort((a,b)=>(b.order_date||"").localeCompare(a.order_date||""))
+          return<Card key={c.id} style={{marginBottom:12,padding:16}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:10}}>
+              <div style={{display:"flex",alignItems:"center",gap:10}}>
+                <div style={{width:28,height:28,borderRadius:"50%",background:T.accD,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,color:T.acc}}>{c.name?.charAt(0)?.toUpperCase()}</div>
+                <div><span style={{fontSize:14,fontWeight:600}}>{c.name}</span><span style={{fontSize:11,color:T.dim,marginLeft:8}}>{c.type}</span></div>
+              </div>
+              <Badge c={c.status==="aktiv"?T.ok:c.status==="lead"?T.acc:T.dim}>{c.status}</Badge>
+            </div>
+            {e.count===0?<div style={{fontSize:12,color:T.dim}}>Ingen ordrer</div>:<>
+              <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:10}}>
+                <div style={{flex:"1 1 100px",background:T.input,borderRadius:8,padding:"8px 12px",textAlign:"center"}}>
+                  <div style={{fontSize:10,color:T.dim,textTransform:"uppercase",letterSpacing:".05em",marginBottom:3}}>Ordrer</div>
+                  <div style={{fontSize:18,fontWeight:700,fontFamily:T.fm,color:T.mid}}>{e.count}</div>
+                </div>
+                <div style={{flex:"1 1 100px",background:T.input,borderRadius:8,padding:"8px 12px",textAlign:"center"}}>
+                  <div style={{fontSize:10,color:T.dim,textTransform:"uppercase",letterSpacing:".05em",marginBottom:3}}>Omsætning</div>
+                  <div style={{fontSize:18,fontWeight:700,fontFamily:T.fm,color:T.ok}}>{fk(Math.round(e.rev))}</div>
+                </div>
+                <div style={{flex:"1 1 100px",background:T.input,borderRadius:8,padding:"8px 12px",textAlign:"center"}}>
+                  <div style={{fontSize:10,color:T.dim,textTransform:"uppercase",letterSpacing:".05em",marginBottom:3}}>Est. margin</div>
+                  <div style={{fontSize:18,fontWeight:700,fontFamily:T.fm,color:e.margin>=0?T.ok:T.red}}>{fk(Math.round(e.margin))}{e.pct!=null&&<span style={{fontSize:11,fontWeight:400,color:T.dim,marginLeft:4}}>({e.pct}%)</span>}</div>
+                </div>
+                <div style={{flex:"1 1 100px",background:T.input,borderRadius:8,padding:"8px 12px",textAlign:"center"}}>
+                  <div style={{fontSize:10,color:T.dim,textTransform:"uppercase",letterSpacing:".05em",marginBottom:3}}>Gns. ordre</div>
+                  <div style={{fontSize:18,fontWeight:700,fontFamily:T.fm,color:T.mid}}>{fk(Math.round(e.avg))}</div>
+                </div>
+              </div>
+              {e.incomplete&&<div style={{fontSize:11,color:T.warn,marginBottom:8}}>Estimat ufuldstændigt — nogle ordrer matcher ikke en opskrift</div>}
+              <div style={{borderTop:`1px solid ${T.brdL}`,paddingTop:8}}>
+                <div style={{fontSize:10,fontWeight:600,color:T.dim,textTransform:"uppercase",letterSpacing:".06em",marginBottom:6}}>Ordrehistorik</div>
+                {custOrders.map(o=>{const m=orderMargin(o);const qty=parseInt(o.qty)||0;const price=parseFloat(o.price)||0;const rev=price*qty
+                  return<div key={o.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:12,padding:"4px 0",borderBottom:`1px solid ${T.brdL}22`}}>
+                    <div style={{color:T.mid}}>{o.order_date||"—"} · {o.product} · {qty} stk</div>
+                    <div style={{display:"flex",gap:12,fontFamily:T.fm,flexShrink:0}}>
+                      <span style={{color:T.mid}}>{rev>0?fk(Math.round(rev)):"—"}</span>
+                      {m?<span style={{color:m.margin>=0?T.ok:T.red,fontWeight:500}}>DB: {fk(Math.round(m.margin))}{m.marginPct!=null&&` (${m.marginPct}%)`}</span>:<span style={{color:T.dim}}>—</span>}
+                    </div>
+                  </div>
+                })}
+              </div>
+            </>}
+          </Card>
+        })
+      }
+    </div>}
 
     {/* ─── KUNDE MODAL ─── */}
     {show&&ft==="c"&&<Modal title={form.name||"Ny kunde"} onClose={()=>setShow(false)}>
