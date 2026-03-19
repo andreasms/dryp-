@@ -1,7 +1,35 @@
 import { NextResponse } from 'next/server'
+import { createServerSupabase } from '@/lib/supabase-server'
+
+// In-memory rate limit: max 10 requests per 60s per user
+const rateLimitMap = new Map()
+const RATE_LIMIT = 10
+const RATE_WINDOW_MS = 60_000
+
+function isRateLimited(userId) {
+  const now = Date.now()
+  const timestamps = (rateLimitMap.get(userId) || []).filter(t => now - t < RATE_WINDOW_MS)
+  if (timestamps.length >= RATE_LIMIT) {
+    rateLimitMap.set(userId, timestamps)
+    return true
+  }
+  timestamps.push(now)
+  rateLimitMap.set(userId, timestamps)
+  return false
+}
 
 export async function POST(request) {
   try {
+    const supabase = createServerSupabase()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) {
+      return NextResponse.json({ error: 'Ikke logget ind' }, { status: 401 })
+    }
+
+    if (isRateLimited(user.id)) {
+      return NextResponse.json({ error: 'For mange requests — vent venligst' }, { status: 429 })
+    }
+
     const { to, subject, html, from_name } = await request.json()
 
     if (!to || !subject || !html) {

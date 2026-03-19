@@ -7,32 +7,16 @@ export default function LoginPage() {
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [mode, setMode] = useState('login') // login or signup
   const supabase = createClient()
-
-  const ALLOWED_EMAILS = (process.env.NEXT_PUBLIC_ALLOWED_EMAILS || '').split(',').map(e => e.trim().toLowerCase()).filter(Boolean)
 
   async function handleSubmit(e) {
     e.preventDefault()
     setLoading(true)
     setError('')
 
-    const emailLower = email.toLowerCase().trim()
-    if (ALLOWED_EMAILS.length > 0 && !ALLOWED_EMAILS.includes(emailLower)) {
-      setError('Denne email har ikke adgang til DRYP. Kontakt administrator.')
-      setLoading(false)
-      return
-    }
-
-    if (mode === 'signup') {
-      const { error } = await supabase.auth.signUp({ email, password })
-      if (error) setError(error.message)
-      else setError('Tjek din email for bekræftelseslink!')
-    } else {
-      const { error } = await supabase.auth.signInWithPassword({ email, password })
-      if (error) setError('Forkert email eller password')
-      else window.location.href = '/'
-    }
+    const { error } = await supabase.auth.signInWithPassword({ email, password })
+    if (error) setError('Forkert email eller password')
+    else window.location.href = '/'
     setLoading(false)
   }
 
@@ -72,7 +56,7 @@ export default function LoginPage() {
 
           {error && (
             <div style={{
-              fontSize: 12, color: error.includes('Tjek') ? '#54c878' : '#e85454',
+              fontSize: 12, color: '#e85454',
               marginBottom: 12
             }}>{error}</div>
           )}
@@ -83,16 +67,16 @@ export default function LoginPage() {
             fontSize: 13, fontWeight: 700, letterSpacing: '0.04em',
             opacity: loading ? 0.5 : 1
           }}>
-            {loading ? '...' : mode === 'login' ? 'Log ind' : 'Opret konto'}
+            {loading ? '...' : 'Log ind'}
           </button>
         </form>
 
-        <button onClick={() => setMode(mode === 'login' ? 'signup' : 'login')} style={{
-          background: 'none', color: 'rgba(232,240,216,0.4)',
-          fontSize: 11, marginTop: 16, textDecoration: 'underline'
+        <div style={{
+          fontSize: 10, color: 'rgba(232,240,216,0.25)',
+          marginTop: 20
         }}>
-          {mode === 'login' ? 'Opret ny konto' : 'Har allerede en konto? Log ind'}
-        </button>
+          Brug for adgang? Kontakt administrator.
+        </div>
       </div>
     </div>
   )

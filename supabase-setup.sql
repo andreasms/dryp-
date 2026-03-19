@@ -783,3 +783,55 @@ ALTER TABLE lots ADD COLUMN IF NOT EXISTS receiving_status text NOT NULL DEFAULT
 ALTER TABLE lots DROP CONSTRAINT IF EXISTS lots_receiving_status_check;
 ALTER TABLE lots ADD CONSTRAINT lots_receiving_status_check
   CHECK (receiving_status IN ('godkendt','karantaene','afvist'));
+
+
+-- ═══════════════════════════════════════════
+-- DRYP Phase 6: Security Hardening
+-- 1. Add search_path to is_team_member()
+-- 2. Add team membership guard to decrement_lot_qty()
+-- Safe to run multiple times (create or replace).
+-- ═══════════════════════════════════════════
+
+-- Fix 1: is_team_member() — add search_path = public
+create or replace function is_team_member()
+returns boolean as $$
+  select exists (
+    select 1 from public.team_members
+    where email = auth.jwt() ->> 'email'
+  )
+$$ language sql security definer stable set search_path = public;
+
+
+-- Fix 2: decrement_lot_qty() — add is_team_member() guard
+create or replace function decrement_lot_qty(p_lot_id uuid, p_qty numeric)
+returns numeric as $$
+declare
+  v_remaining numeric;
+begin
+  if not is_team_member() then
+    raise exception 'Adgang nægtet';
+  end if;
+
+  if p_qty is null or p_qty <= 0 then
+    raise exception 'Ugyldigt antal: skal være større end 0';
+  end if;
+
+  update lots
+    set qty_remaining = qty_remaining - p_qty
+    where id = p_lot_id
+      and qty_remaining >= p_qty
+  returning qty_remaining into v_remaining;
+
+  if not found then
+    select qty_remaining into v_remaining from lots where id = p_lot_id;
+    if v_remaining is null then
+      raise exception 'Lot ikke fundet: %', p_lot_id;
+    else
+      raise exception 'Ikke nok lagerbeholdning: % tilgængelig, % efterspurgt',
+        v_remaining, p_qty;
+    end if;
+  end if;
+
+  return v_remaining;
+end;
+$$ language plpgsql security definer set search_path = public;
