@@ -1457,21 +1457,38 @@ function Customers({data,supabase,user}){
 }
 
 function Economy({data,save,supabase}){
-  const[editP,setEditP]=useState(false);const p=data.prices||{};const[pf,setPf]=useState(p)
-  const[simOpen,setSimOpen]=useState(false);const[simRid,setSimRid]=useState("");const[simW,setSimW]=useState("");const[simOh,setSimOh]=useState("");const[simRawMul,setSimRawMul]=useState("0");const[simPackMul,setSimPackMul]=useState("0")
+  const[editP,setEditP]=useState(false);const[editEco,setEditEco]=useState(false)
+  const p=data.prices||{};const[pf,setPf]=useState(p)
+  const eco=p.economics||{}
+  const[ef,setEf]=useState(eco)
+  const[simOpen,setSimOpen]=useState(false);const[simRid,setSimRid]=useState("");const[simW,setSimW]=useState("");const[simRawMul,setSimRawMul]=useState("0");const[simPackMul,setSimPackMul]=useState("0")
   const[ecoBatches,setEcoBatches]=useState(null)
   const[orders,setOrders]=useState([])
   const recipes=(data.recipes||[]).filter(r=>r.active)
   useEffect(()=>{if(!supabase)return;getBatches(supabase).then(setEcoBatches).catch(()=>{});getOrders(supabase).then(setOrders).catch(()=>{})},[supabase])
 
-  // Cost helpers
+  // Cost helpers — BOM-based
   const costRaw=(rid)=>{const r=(data.recipes||[]).find(x=>x.id===rid);if(!r)return 0;return(r.bom||[]).filter(b=>{const inv=data.inventory.find(x=>x.id===b.itemId);return inv?.cat==="Råvare"}).reduce((s,b)=>{const inv=data.inventory.find(x=>x.id===b.itemId);return s+(inv?.costPer||0)*b.qty},0)}
   const costPack=(rid)=>{const r=(data.recipes||[]).find(x=>x.id===rid);if(!r)return 0;return(r.bom||[]).filter(b=>{const inv=data.inventory.find(x=>x.id===b.itemId);return inv?.cat!=="Råvare"}).reduce((s,b)=>{const inv=data.inventory.find(x=>x.id===b.itemId);return s+(inv?.costPer||0)*b.qty},0)}
 
-  // Wholesale price lookup — two-tier:
-  // 1) data.prices.byRecipe[recipeId]?.wholesale (future-proof per-recipe mapping)
-  // 2) Legacy fallback for exact dild-250/dild-500 only
-  // Returns null if no price found so UI can show "mangler pris"
+  // Economics model helpers
+  const ecoLabel=eco.label_cost_per_unit||0
+  const ecoFreight=eco.freight_cost_per_unit||0
+  const ecoWastePct=eco.waste_pct||0
+  const ecoLaborBatch=eco.labor_cost_per_batch||0
+  const ecoBatchSize=eco.default_batch_size||0
+  const ecoLaborUnit=ecoBatchSize>0?ecoLaborBatch/ecoBatchSize:0
+  const ecoMonthlyFixed=(eco.monthly_kitchen||0)+(eco.monthly_lab||0)+(eco.monthly_other||0)
+  const hasEco=Object.keys(eco).length>0
+
+  // Full variable cost per unit for a recipe
+  const variableCost=(rid)=>{
+    const raw=costRaw(rid);const pack=costPack(rid)
+    const waste=raw*ecoWastePct/100
+    return raw+pack+ecoLabel+ecoFreight+waste+ecoLaborUnit
+  }
+
+  // Wholesale price lookup — two-tier
   const getWholesalePrice=(rid)=>{
     const byR=p.byRecipe?.[rid]
     if(byR?.wholesale!=null)return byR.wholesale
@@ -1487,41 +1504,52 @@ function Economy({data,save,supabase}){
   const revThis=orders.filter(o=>o.order_date?.startsWith(mo)).reduce((s,o)=>s+(parseFloat(o.price)||0)*(parseInt(o.qty)||0),0)
   const revPrev=orders.filter(o=>o.order_date?.startsWith(prevMo)).reduce((s,o)=>s+(parseFloat(o.price)||0)*(parseInt(o.qty)||0),0)
 
-  // Bottles sold this month + weighted margin
+  // Bottles sold this month + weighted CM
   const thisMonthOrders=orders.filter(o=>o.order_date?.startsWith(mo))
-  const totalQtyThis=thisMonthOrders.reduce((s,o)=>s+(parseInt(o.qty)||0),0)
-  let marginWeightedSum=0;let revenueWeightedSum=0
+  let cmWeightedSum=0;let revenueWeightedSum=0
   thisMonthOrders.forEach(o=>{
     const qty=parseInt(o.qty)||0;const price=parseFloat(o.price)||0
     const r=recipes.find(x=>x.name===o.product)
     if(!r||!qty||!price)return
-    const cost=costRaw(r.id)+costPack(r.id)
-    marginWeightedSum+=(price-cost)*qty
+    const vc=variableCost(r.id)
+    cmWeightedSum+=(price-vc)*qty
     revenueWeightedSum+=price*qty
   })
-  const avgDbPct=revenueWeightedSum>0?Math.round(marginWeightedSum/revenueWeightedSum*100):null
+  const avgCmPct=revenueWeightedSum>0?Math.round(cmWeightedSum/revenueWeightedSum*100):null
 
-  // Overhead per bottle — forecast (user-defined volume) and actual MTD (completed batches)
-  const forecastBottles=p.forecastMonthlyBottles||600
-  const forecastOh=(p.overhead||0)/Math.max(forecastBottles,1)
-  const mtdBottles=ecoBatches?ecoBatches.filter(b=>b.status==="completed"&&b.completed_at?.startsWith(mo)).reduce((s,b)=>s+(b.actual_qty||0),0):null
-  const actualOh=mtdBottles!=null&&mtdBottles>0?(p.overhead||0)/mtdBottles:null
-  // Used by margin cards and simulator as the best available per-bottle overhead
-  const overheadPerBottle=actualOh!=null?actualOh:forecastOh
+  // Forecast volume for fixed cost allocation
+  const forecastBottles=p.forecastMonthlyBottles||0
+  const fixedPerUnit=forecastBottles>0?ecoMonthlyFixed/forecastBottles:null
+
+  // Weighted average CM for break-even
+  let weightedCmPerUnit=null
+  if(recipes.length>0){
+    let totalCm=0;let count=0
+    recipes.forEach(r=>{
+      const wp=getWholesalePrice(r.id);if(wp==null)return
+      const cm=wp-variableCost(r.id)
+      totalCm+=cm;count++
+    })
+    if(count>0)weightedCmPerUnit=totalCm/count
+  }
+  const weightedWp=recipes.reduce((s,r)=>{const wp=getWholesalePrice(r.id);return wp!=null?s+wp:s},0)/Math.max(recipes.filter(r=>getWholesalePrice(r.id)!=null).length,1)
+
+  // Source label helper
+  const srcBom=<span style={{fontSize:10,color:T.dim,fontStyle:"italic",marginLeft:4}}>fra BOM</span>
+  const srcManual=<span style={{fontSize:10,color:T.dim,fontStyle:"italic",marginLeft:4}}>antagelse</span>
 
   return<div style={{maxWidth:1060}}>
-    <SH title="Økonomi" desc="Omsætning, kostpriser og marginer" tip="Råvarekost og emballage vises separat. Dækningsbidrag beregnes automatisk fra engrospris minus samlet kostpris."/>
+    <SH title="Økonomi" desc="Omkostningsmodel, marginer og break-even" tip="Variable omkostninger beregnes pr. flaske. Dækningsbidrag (DB) = engrospris minus variable omkostninger. Faste omkostninger fordeles pr. flaske baseret på forecast-volumen."/>
 
-    {/* ─── B1: KPI CARDS ─── */}
+    {/* ─── KPI CARDS ─── */}
     <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:22}}>
       <Stat label="Omsætning" value={fk(revThis)} c={T.ok} sub="Denne måned"/>
       <Stat label="Forrige måned" value={fk(revPrev)} c={T.mid}/>
-      <Stat label="Gns. DB%" value={avgDbPct!==null?`${avgDbPct}%`:"—"} c={avgDbPct!==null&&avgDbPct>0?T.ok:T.warn} sub={avgDbPct!==null?"Vægtet snit denne måned":"Ingen ordrer endnu"}/>
-      <Stat label="OH / flaske (forecast)" value={`${forecastOh.toFixed(1)} kr`} c={T.mid} sub={`Baseret på ${forecastBottles} flasker/md.`}/>
-      <Stat label="OH / flaske (faktisk)" value={actualOh!=null?`${actualOh.toFixed(1)} kr`:"—"} c={actualOh!=null?T.ok:T.dim} sub={mtdBottles!=null&&mtdBottles>0?`${mtdBottles} stk produceret denne md.`:"Ingen afsluttede batches"}/>
+      <Stat label="Gns. DB%" value={avgCmPct!==null?`${avgCmPct}%`:"—"} c={avgCmPct!==null&&avgCmPct>0?T.ok:T.warn} sub={avgCmPct!==null?"Vægtet snit denne måned":"Ingen ordrer endnu"} tip="Dækningsbidrag i % = (pris − variable omk.) / pris"/>
+      <Stat label="Faste omk./md" value={ecoMonthlyFixed>0?`${fk(ecoMonthlyFixed)}`:"—"} c={T.mid} sub={ecoMonthlyFixed>0?"Køkken + lab + øvrige":"Ikke udfyldt"} tip="Sum af alle faste månedlige omkostninger"/>
     </div>
 
-    {/* ─── B3: REVENUE MINI CHART (6 months) ─── */}
+    {/* ─── REVENUE MINI CHART (6 months) ─── */}
     {(()=>{
       const daMo=["jan","feb","mar","apr","maj","jun","jul","aug","sep","okt","nov","dec"]
       const months=[]
@@ -1544,47 +1572,107 @@ function Economy({data,save,supabase}){
       </Card>
     })()}
 
-    {/* ─── B2: PRODUCT MARGIN CARDS ─── */}
+    {/* ─── PRODUCT MARGIN CARDS ─── */}
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-      <span style={{fontSize:14,fontWeight:600}}>Produktmargin</span>
-      <Btn small onClick={()=>{setPf(p);setEditP(true)}}>Rediger priser</Btn>
+      <span style={{fontSize:14,fontWeight:600}}>Produktøkonomi</span>
+      <div style={{display:"flex",gap:8}}>
+        <Btn small onClick={()=>{setEf(eco);setEditEco(true)}}>Omkostningsmodel</Btn>
+        <Btn small onClick={()=>{setPf(p);setEditP(true)}}>Priser</Btn>
+      </div>
     </div>
+    {!hasEco&&<Card style={{marginBottom:14,borderLeft:`4px solid ${T.warn}`,background:T.accDD}}>
+      <div style={{fontSize:13,color:T.warn,fontWeight:500}}>Omkostningsmodel ikke udfyldt</div>
+      <div style={{fontSize:12,color:T.mid,marginTop:4}}>Klik "Omkostningsmodel" for at angive etiket, fragt, spild, arbejdskraft og faste omkostninger. Indtil da vises kun råvare- og emballagekost fra opskrifterne.</div>
+    </Card>}
     {recipes.map(r=>{
       const raw=costRaw(r.id);const pack=costPack(r.id)
+      const waste=raw*ecoWastePct/100
+      const vc=variableCost(r.id)
       const wholesale=getWholesalePrice(r.id)
       const hasPrice=wholesale!=null
-      const ohPerUnit=overheadPerBottle||0
-      const totalCost=raw+pack+ohPerUnit
-      const db=hasPrice?wholesale-totalCost:null
-      const dbPct=hasPrice&&wholesale>0?Math.round(db/wholesale*100):null
-      // Stacked bar segments: proportional to wholesale (or totalCost if no price)
-      const barMax=Math.max(hasPrice?wholesale:0,totalCost,1)
-      const rawW=raw/barMax*100;const packW=pack/barMax*100;const ohW=ohPerUnit/barMax*100;const profitW=db!=null&&db>0?db/barMax*100:0
-      return<Card key={r.id} style={{marginBottom:10,padding:16}}>
+      const cm=hasPrice?wholesale-vc:null
+      const cmPct=hasPrice&&wholesale>0?Math.round(cm/wholesale*100):null
+      const fullCost=fixedPerUnit!=null?vc+fixedPerUnit:null
+      const gp=hasPrice&&fullCost!=null?wholesale-fullCost:null
+      const gpPct=hasPrice&&wholesale>0&&gp!=null?Math.round(gp/wholesale*100):null
+      // Stacked bar
+      const barMax=Math.max(hasPrice?wholesale:0,vc,1)
+      const rawW=raw/barMax*100;const packW=pack/barMax*100
+      const labelW=ecoLabel/barMax*100;const freightW=ecoFreight/barMax*100
+      const wasteW=waste/barMax*100;const laborW=ecoLaborUnit/barMax*100
+      const profitW=cm!=null&&cm>0?cm/barMax*100:0
+      return<Card key={r.id} style={{marginBottom:12,padding:16}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:10}}>
           <div><span style={{fontSize:14,fontWeight:600}}>{r.name}</span><span style={{fontSize:11,color:T.dim,marginLeft:8}}>{r.id}</span></div>
           <div style={{fontSize:13,fontFamily:T.fm,color:T.mid}}>Engros: {hasPrice?`${wholesale} kr`:<span style={{color:T.warn}}>mangler pris</span>}</div>
         </div>
 
         {/* Stacked cost bar */}
-        <div style={{display:"flex",height:22,borderRadius:6,overflow:"hidden",marginBottom:10,background:T.input}}>
-          {rawW>0&&<div style={{width:`${rawW}%`,background:"#7eb85a",display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:600,color:T.bg,minWidth:rawW>8?0:"auto"}} title={`Råvare: ${raw.toFixed(1)} kr`}>{rawW>10?"Råvare":""}</div>}
-          {packW>0&&<div style={{width:`${packW}%`,background:"#b8a44e",display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:600,color:T.bg,minWidth:packW>8?0:"auto"}} title={`Emballage: ${pack.toFixed(1)} kr`}>{packW>10?"Emb":""}</div>}
-          {ohW>0&&<div style={{width:`${ohW}%`,background:"#8a7a5a",display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:600,color:T.bg}} title={`Overhead: ${ohPerUnit.toFixed(1)} kr`}>{ohW>10?"OH":""}</div>}
-          {profitW>0&&<div style={{width:`${profitW}%`,background:T.ok,display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:600,color:T.bg}} title={`DB: ${db.toFixed(1)} kr`}>{profitW>12?"DB":""}</div>}
+        <div style={{display:"flex",height:22,borderRadius:6,overflow:"hidden",marginBottom:12,background:T.input}}>
+          {rawW>0&&<div style={{width:`${rawW}%`,background:"#7eb85a",minWidth:2}} title={`Råvare: ${raw.toFixed(1)} kr`}/>}
+          {packW>0&&<div style={{width:`${packW}%`,background:"#b8a44e",minWidth:2}} title={`Emballage: ${pack.toFixed(1)} kr`}/>}
+          {labelW>0&&<div style={{width:`${labelW}%`,background:"#a89060",minWidth:2}} title={`Etiket: ${ecoLabel.toFixed(1)} kr`}/>}
+          {freightW>0&&<div style={{width:`${freightW}%`,background:"#7a8a6a",minWidth:2}} title={`Fragt: ${ecoFreight.toFixed(1)} kr`}/>}
+          {wasteW>0&&<div style={{width:`${wasteW}%`,background:"#c47a5a",minWidth:2}} title={`Spild: ${waste.toFixed(1)} kr`}/>}
+          {laborW>0&&<div style={{width:`${laborW}%`,background:"#8a7a5a",minWidth:2}} title={`Arbejdskraft: ${ecoLaborUnit.toFixed(1)} kr`}/>}
+          {profitW>0&&<div style={{width:`${profitW}%`,background:T.ok,minWidth:2}} title={`DB: ${cm.toFixed(1)} kr`}/>}
         </div>
 
-        {/* Numbers row */}
-        <div style={{display:"flex",gap:16,flexWrap:"wrap",fontSize:12}}>
-          <span style={{color:"#7eb85a",fontFamily:T.fm}}>Råvare: {raw.toFixed(1)}</span>
-          <span style={{color:"#b8a44e",fontFamily:T.fm}}>Emb: {pack.toFixed(1)}</span>
-          {ohPerUnit>0&&<span style={{color:"#8a7a5a",fontFamily:T.fm}}>OH: {ohPerUnit.toFixed(1)}</span>}
-          <span style={{color:T.warn,fontFamily:T.fm,fontWeight:600}}>Kostpris: {totalCost.toFixed(1)} kr</span>
-          {db!=null&&<span style={{color:db>=0?T.ok:T.red,fontFamily:T.fm,fontWeight:600}}>DB: {db.toFixed(0)} kr {dbPct!=null&&`(${dbPct}%)`}</span>}
+        {/* Detailed breakdown */}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"4px 24px",fontSize:12,marginBottom:10}}>
+          <div style={{display:"flex",justifyContent:"space-between"}}><span style={{color:"#7eb85a"}}>Råvare{srcBom}</span><span style={{fontFamily:T.fm,color:T.mid}}>{raw.toFixed(1)} kr</span></div>
+          <div style={{display:"flex",justifyContent:"space-between"}}><span style={{color:"#b8a44e"}}>Emballage{srcBom}</span><span style={{fontFamily:T.fm,color:T.mid}}>{pack.toFixed(1)} kr</span></div>
+          {ecoLabel>0&&<div style={{display:"flex",justifyContent:"space-between"}}><span style={{color:"#a89060"}}>Etiket{srcManual}</span><span style={{fontFamily:T.fm,color:T.mid}}>{ecoLabel.toFixed(1)} kr</span></div>}
+          {ecoFreight>0&&<div style={{display:"flex",justifyContent:"space-between"}}><span style={{color:"#7a8a6a"}}>Fragt/prøve{srcManual}</span><span style={{fontFamily:T.fm,color:T.mid}}>{ecoFreight.toFixed(1)} kr</span></div>}
+          {waste>0&&<div style={{display:"flex",justifyContent:"space-between"}}><span style={{color:"#c47a5a"}}>Spild ({ecoWastePct}% af råvare){srcManual}</span><span style={{fontFamily:T.fm,color:T.mid}}>{waste.toFixed(1)} kr</span></div>}
+          {ecoLaborUnit>0&&<div style={{display:"flex",justifyContent:"space-between"}}><span style={{color:"#8a7a5a"}}>Arbejdskraft{srcManual}</span><span style={{fontFamily:T.fm,color:T.mid}}>{ecoLaborUnit.toFixed(1)} kr</span></div>}
+          {ecoLaborUnit>0&&<div style={{gridColumn:"1/-1",fontSize:10,color:T.dim,marginTop:-2,marginBottom:2,paddingLeft:8}}>{ecoLaborBatch} kr/batch ÷ {ecoBatchSize} stk (antaget batchstørrelse)</div>}
+        </div>
+
+        {/* Summary line */}
+        <div style={{borderTop:`1px solid ${T.brdL}`,paddingTop:8,display:"flex",gap:16,flexWrap:"wrap",fontSize:12}}>
+          <span style={{color:T.warn,fontFamily:T.fm,fontWeight:600}}>Variabel kost: {vc.toFixed(1)} kr</span>
+          {cm!=null&&<span style={{color:cm>=0?T.ok:T.red,fontFamily:T.fm,fontWeight:600}}>DB: {cm.toFixed(1)} kr {cmPct!=null&&`(${cmPct}%)`}</span>}
+          {fullCost!=null&&<span style={{color:T.mid,fontFamily:T.fm}}>Fuld kost: {fullCost.toFixed(1)} kr</span>}
+          {gp!=null&&<span style={{color:gp>=0?T.ok:T.red,fontFamily:T.fm,fontWeight:600}}>Bruttoavance: {gp.toFixed(1)} kr {gpPct!=null&&`(${gpPct}%)`}</span>}
+          {fullCost==null&&forecastBottles<=0&&<span style={{color:T.dim,fontFamily:T.fm,fontSize:11}}>Angiv forecast-volumen for fuld kostpris</span>}
         </div>
       </Card>
     })}
-    {/* ─── B4: WHAT-IF SIMULATOR ─── */}
+
+    {/* ─── BREAK-EVEN ─── */}
+    <Card style={{marginTop:18,padding:16}}>
+      <div style={{fontSize:14,fontWeight:600,marginBottom:14}}>Break-even</div>
+      {ecoMonthlyFixed<=0?<div style={{fontSize:12,color:T.dim}}>Udfyld faste månedlige omkostninger i omkostningsmodellen for at beregne break-even.</div>
+      :weightedCmPerUnit==null?<div style={{fontSize:12,color:T.dim}}>Angiv engrospriser for mindst ét produkt for at beregne break-even.</div>
+      :weightedCmPerUnit<=0?<div style={{fontSize:12,color:T.warn}}>Break-even kan ikke beregnes — dækningsbidraget er negativt eller nul. Variable omkostninger overstiger salgsprisen.</div>
+      :(()=>{
+        const beUnits=Math.ceil(ecoMonthlyFixed/weightedCmPerUnit)
+        const beRevenue=Math.round(beUnits*weightedWp)
+        return<>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"8px 24px",fontSize:12,marginBottom:14}}>
+            <div><div style={{fontSize:10,color:T.dim,textTransform:"uppercase",letterSpacing:".05em",marginBottom:3}}>Faste omk. pr. måned</div><div style={{fontFamily:T.fm,fontSize:16,fontWeight:600,color:T.mid}}>{fk(ecoMonthlyFixed)}</div></div>
+            <div><div style={{fontSize:10,color:T.dim,textTransform:"uppercase",letterSpacing:".05em",marginBottom:3}}>Gns. DB pr. flaske</div><div style={{fontFamily:T.fm,fontSize:16,fontWeight:600,color:T.ok}}>{weightedCmPerUnit.toFixed(1)} kr</div></div>
+          </div>
+          <div style={{display:"flex",gap:16,flexWrap:"wrap",marginBottom:10}}>
+            <div style={{flex:"1 1 180px",background:T.accDD,borderRadius:10,padding:"14px 18px",textAlign:"center"}}>
+              <div style={{fontSize:10,color:T.dim,textTransform:"uppercase",letterSpacing:".08em",marginBottom:6}}>Break-even flasker/md</div>
+              <div style={{fontSize:28,fontWeight:700,fontFamily:T.fm,color:T.acc}}>{beUnits}</div>
+            </div>
+            <div style={{flex:"1 1 180px",background:T.accDD,borderRadius:10,padding:"14px 18px",textAlign:"center"}}>
+              <div style={{fontSize:10,color:T.dim,textTransform:"uppercase",letterSpacing:".08em",marginBottom:6}}>Break-even omsætning/md</div>
+              <div style={{fontSize:28,fontWeight:700,fontFamily:T.fm,color:T.acc}}>{fk(beRevenue)}</div>
+            </div>
+          </div>
+          <div style={{fontSize:11,color:T.dim,lineHeight:1.5}}>
+            Faste omk.: køkken {fk(eco.monthly_kitchen||0)} + lab {fk(eco.monthly_lab||0)} + øvrige {fk(eco.monthly_other||0)}<br/>
+            Baseret på gns. DB pr. flaske på tværs af aktive produkter med engrospris.
+          </div>
+        </>
+      })()}
+    </Card>
+
+    {/* ─── WHAT-IF SIMULATOR ─── */}
     <Card style={{marginTop:18,padding:0,overflow:"hidden"}}>
       <div onClick={()=>setSimOpen(!simOpen)} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"12px 16px",cursor:"pointer"}}>
         <span style={{fontSize:14,fontWeight:600}}>Hvad-hvis (simulator)</span>
@@ -1593,35 +1681,39 @@ function Economy({data,save,supabase}){
       {simOpen&&<div style={{padding:"0 16px 16px",borderTop:`1px solid ${T.brdL}`}}>
         <div style={{paddingTop:14,marginBottom:14}}>
           <Field label="Vælg produkt">
-            <select value={simRid} onChange={e=>{const rid=e.target.value;setSimRid(rid);const wp=getWholesalePrice(rid);setSimW(wp!=null?String(wp):"");setSimOh(overheadPerBottle!=null?overheadPerBottle.toFixed(1):"0");setSimRawMul("0");setSimPackMul("0")}}>
+            <select value={simRid} onChange={e=>{const rid=e.target.value;setSimRid(rid);const wp=getWholesalePrice(rid);setSimW(wp!=null?String(wp):"");setSimRawMul("0");setSimPackMul("0")}}>
               <option value="">Vælg opskrift...</option>
               {recipes.map(r=><option key={r.id} value={r.id}>{r.name}</option>)}
             </select>
           </Field>
         </div>
         {simRid&&(()=>{
-          const sRaw=costRaw(simRid)*(1+(parseFloat(simRawMul)||0)/100)
-          const sPack=costPack(simRid)*(1+(parseFloat(simPackMul)||0)/100)
-          const sOh=parseFloat(simOh)||0
-          const sTotal=sRaw+sPack+sOh
+          const sRawBase=costRaw(simRid);const sPackBase=costPack(simRid)
+          const sRaw=sRawBase*(1+(parseFloat(simRawMul)||0)/100)
+          const sPack=sPackBase*(1+(parseFloat(simPackMul)||0)/100)
+          const sWaste=sRaw*ecoWastePct/100
+          const sLabor=ecoLaborUnit
+          const sTotal=sRaw+sPack+ecoLabel+ecoFreight+sWaste+sLabor
           const sWp=parseFloat(simW)||0
-          const sDb=sWp>0?sWp-sTotal:null
-          const sDbPct=sWp>0&&sDb!=null?Math.round(sDb/sWp*100):null
+          const sCm=sWp>0?sWp-sTotal:null
+          const sCmPct=sWp>0&&sCm!=null?Math.round(sCm/sWp*100):null
+          const sFullCost=fixedPerUnit!=null?sTotal+fixedPerUnit:null
+          const sGp=sWp>0&&sFullCost!=null?sWp-sFullCost:null
           return<>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 16px",marginBottom:16}}>
               <Field label="Engrospris (kr)"><input type="number" value={simW} onChange={e=>setSimW(e.target.value)} placeholder="—"/></Field>
-              <Field label="Overhead / flaske (kr)"><input type="number" step="0.1" value={simOh} onChange={e=>setSimOh(e.target.value)}/></Field>
+              <div/>
               <Field label="Råvare ændring (%)" tip="F.eks. +10 for 10% dyrere"><input type="number" value={simRawMul} onChange={e=>setSimRawMul(e.target.value)}/></Field>
               <Field label="Emballage ændring (%)" tip="F.eks. -5 for 5% billigere"><input type="number" value={simPackMul} onChange={e=>setSimPackMul(e.target.value)}/></Field>
             </div>
             <div style={{background:T.input,borderRadius:8,padding:"12px 16px",marginBottom:14}}>
-              <div style={{display:"flex",gap:20,flexWrap:"wrap",fontSize:13}}>
+              <div style={{display:"flex",gap:16,flexWrap:"wrap",fontSize:13}}>
                 <span style={{color:"#7eb85a",fontFamily:T.fm}}>Råvare: {sRaw.toFixed(1)}</span>
                 <span style={{color:"#b8a44e",fontFamily:T.fm}}>Emb: {sPack.toFixed(1)}</span>
-                <span style={{color:"#8a7a5a",fontFamily:T.fm}}>OH: {sOh.toFixed(1)}</span>
-                <span style={{color:T.warn,fontFamily:T.fm,fontWeight:600}}>Kostpris: {sTotal.toFixed(1)} kr</span>
-                {sDb!=null&&<span style={{color:sDb>=0?T.ok:T.red,fontFamily:T.fm,fontWeight:700}}>DB: {sDb.toFixed(0)} kr {sDbPct!=null&&`(${sDbPct}%)`}</span>}
-                {sDb==null&&<span style={{color:T.dim,fontFamily:T.fm}}>Angiv engrospris for DB</span>}
+                <span style={{color:T.warn,fontFamily:T.fm,fontWeight:600}}>Variabel: {sTotal.toFixed(1)} kr</span>
+                {sCm!=null&&<span style={{color:sCm>=0?T.ok:T.red,fontFamily:T.fm,fontWeight:700}}>DB: {sCm.toFixed(1)} kr {sCmPct!=null&&`(${sCmPct}%)`}</span>}
+                {sGp!=null&&<span style={{color:sGp>=0?T.ok:T.red,fontFamily:T.fm}}>Bruttoavance: {sGp.toFixed(1)} kr</span>}
+                {sCm==null&&<span style={{color:T.dim,fontFamily:T.fm}}>Angiv engrospris for DB</span>}
               </div>
             </div>
             {sWp>0&&<div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
@@ -1632,7 +1724,39 @@ function Economy({data,save,supabase}){
       </div>}
     </Card>
 
-    {editP&&<Modal title="Priser" onClose={()=>setEditP(false)}><Field label="Retail 250ml" tip="Vejledende udsalgspris til slutkunde"><input type="number" value={pf.retail250||0} onChange={e=>setPf({...pf,retail250:parseFloat(e.target.value)||0})}/></Field><Field label="Engros 250ml" tip="B2B pris til restauranter og forhandlere"><input type="number" value={pf.wholesale250||0} onChange={e=>setPf({...pf,wholesale250:parseFloat(e.target.value)||0})}/></Field><Field label="Retail 500ml"><input type="number" value={pf.retail500||0} onChange={e=>setPf({...pf,retail500:parseFloat(e.target.value)||0})}/></Field><Field label="Engros 500ml"><input type="number" value={pf.wholesale500||0} onChange={e=>setPf({...pf,wholesale500:parseFloat(e.target.value)||0})}/></Field><Field label="Overhead pr. måned" tip="Faste udgifter (lager, transport, forsikring)"><input type="number" value={pf.overhead||0} onChange={e=>setPf({...pf,overhead:parseFloat(e.target.value)||0})}/></Field><Field label="Forventet flasker pr. måned" tip="Bruges til forecast overhead pr. flaske. Standard: 600"><input type="number" value={pf.forecastMonthlyBottles||600} onChange={e=>setPf({...pf,forecastMonthlyBottles:parseInt(e.target.value)||0})}/></Field><div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn onClick={()=>setEditP(false)}>Annuller</Btn><Btn primary onClick={()=>{save({...data,prices:pf});setEditP(false)}}>✓ Gem</Btn></div></Modal>}
+    {/* ─── COST MODEL EDITOR ─── */}
+    {editEco&&<Modal title="Omkostningsmodel" onClose={()=>setEditEco(false)}>
+      <div style={{fontSize:12,color:T.dim,marginBottom:16,lineHeight:1.5}}>Variable omkostninger pr. flaske og faste månedlige omkostninger. Bruges til beregning af dækningsbidrag, fuld kostpris og break-even.</div>
+      <div style={{fontSize:10,fontWeight:700,color:T.acc,letterSpacing:".08em",marginBottom:10}}>VARIABLE OMKOSTNINGER</div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 16px"}}>
+        <Field label="Etiket pr. flaske (kr)" tip="Direkte etiketomkostning pr. enhed"><input type="number" step="0.1" value={ef.label_cost_per_unit||""} onChange={e=>setEf({...ef,label_cost_per_unit:parseFloat(e.target.value)||0})} placeholder="0"/></Field>
+        <Field label="Fragt/prøve pr. flaske (kr)" tip="Gennemsnitlig fragt- eller prøveomkostning pr. enhed"><input type="number" step="0.1" value={ef.freight_cost_per_unit||""} onChange={e=>setEf({...ef,freight_cost_per_unit:parseFloat(e.target.value)||0})} placeholder="0"/></Field>
+        <Field label="Spild (% af råvarekost)" tip="Procent spild/svind beregnet kun på råvareomkostningen — ikke emballage"><input type="number" step="0.5" value={ef.waste_pct||""} onChange={e=>setEf({...ef,waste_pct:parseFloat(e.target.value)||0})} placeholder="0"/></Field>
+        <div/>
+        <Field label="Arbejdskraft pr. batch (kr)" tip="Samlet lønomkostning for én produktionsbatch"><input type="number" step="1" value={ef.labor_cost_per_batch||""} onChange={e=>setEf({...ef,labor_cost_per_batch:parseFloat(e.target.value)||0})} placeholder="0"/></Field>
+        <Field label="Antaget batchstørrelse (stk)" tip="Bruges til at beregne arbejdskraft pr. flaske. Dette er en planlægningsantagelse — ikke en fast sandhed."><input type="number" step="1" value={ef.default_batch_size||""} onChange={e=>setEf({...ef,default_batch_size:parseInt(e.target.value)||0})} placeholder="50"/></Field>
+      </div>
+      {(ef.labor_cost_per_batch||0)>0&&(ef.default_batch_size||0)>0&&<div style={{fontSize:11,color:T.mid,marginTop:-6,marginBottom:10,padding:"6px 10px",background:T.input,borderRadius:6}}>= {(ef.labor_cost_per_batch/ef.default_batch_size).toFixed(1)} kr arbejdskraft pr. flaske ({ef.labor_cost_per_batch} kr ÷ {ef.default_batch_size} stk)</div>}
+      {(ef.labor_cost_per_batch||0)>0&&(ef.default_batch_size||0)<=0&&<div style={{fontSize:11,color:T.warn,marginTop:-6,marginBottom:10}}>Angiv batchstørrelse for at beregne arbejdskraft pr. flaske</div>}
+      <div style={{fontSize:10,fontWeight:700,color:T.acc,letterSpacing:".08em",marginTop:14,marginBottom:10}}>FASTE MÅNEDLIGE OMKOSTNINGER</div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 16px"}}>
+        <Field label="Delt køkken (kr/md)" tip="Månedlig leje/andel af produktionskøkken"><input type="number" step="1" value={ef.monthly_kitchen||""} onChange={e=>setEf({...ef,monthly_kitchen:parseFloat(e.target.value)||0})} placeholder="0"/></Field>
+        <Field label="Lab / egenkontrol (kr/md)" tip="Månedlig lab-test, analyse, compliance"><input type="number" step="1" value={ef.monthly_lab||""} onChange={e=>setEf({...ef,monthly_lab:parseFloat(e.target.value)||0})} placeholder="0"/></Field>
+        <Field label="Øvrige faste (kr/md)" tip="Transport, forsikring, abonnementer, andre faste omkostninger"><input type="number" step="1" value={ef.monthly_other||""} onChange={e=>setEf({...ef,monthly_other:parseFloat(e.target.value)||0})} placeholder="0"/></Field>
+      </div>
+      {((ef.monthly_kitchen||0)+(ef.monthly_lab||0)+(ef.monthly_other||0))>0&&<div style={{fontSize:11,color:T.mid,marginTop:-4,marginBottom:10,padding:"6px 10px",background:T.input,borderRadius:6}}>= {fk((ef.monthly_kitchen||0)+(ef.monthly_lab||0)+(ef.monthly_other||0))} faste omk./md total</div>}
+      <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:12}}><Btn onClick={()=>setEditEco(false)}>Annuller</Btn><Btn primary onClick={()=>{save({...data,prices:{...p,economics:ef}});setEditEco(false)}}>✓ Gem model</Btn></div>
+    </Modal>}
+
+    {/* ─── PRICE EDITOR ─── */}
+    {editP&&<Modal title="Priser og forecast" onClose={()=>setEditP(false)}>
+      <Field label="Retail 250ml" tip="Vejledende udsalgspris til slutkunde"><input type="number" value={pf.retail250||0} onChange={e=>setPf({...pf,retail250:parseFloat(e.target.value)||0})}/></Field>
+      <Field label="Engros 250ml" tip="B2B pris til restauranter og forhandlere"><input type="number" value={pf.wholesale250||0} onChange={e=>setPf({...pf,wholesale250:parseFloat(e.target.value)||0})}/></Field>
+      <Field label="Retail 500ml"><input type="number" value={pf.retail500||0} onChange={e=>setPf({...pf,retail500:parseFloat(e.target.value)||0})}/></Field>
+      <Field label="Engros 500ml"><input type="number" value={pf.wholesale500||0} onChange={e=>setPf({...pf,wholesale500:parseFloat(e.target.value)||0})}/></Field>
+      <Field label="Forventet flasker pr. måned" tip="Bruges til at fordele faste omkostninger pr. flaske. Angiv 0 for at udelade fast-kost-beregning."><input type="number" value={pf.forecastMonthlyBottles||0} onChange={e=>setPf({...pf,forecastMonthlyBottles:parseInt(e.target.value)||0})}/></Field>
+      <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn onClick={()=>setEditP(false)}>Annuller</Btn><Btn primary onClick={()=>{save({...data,prices:{...pf,economics:data.prices?.economics||pf.economics}});setEditP(false)}}>✓ Gem</Btn></div>
+    </Modal>}
   </div>
 }
 
