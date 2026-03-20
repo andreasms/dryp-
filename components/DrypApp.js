@@ -1535,6 +1535,13 @@ function Economy({data,save,supabase}){
   const recipes=(data.recipes||[]).filter(r=>r.active)
   useEffect(()=>{if(!supabase)return;getBatches(supabase).then(setEcoBatches).catch(()=>{});getOrders(supabase).then(setOrders).catch(()=>{})},[supabase])
 
+  // Observed waste from batch history (unit-based yield loss)
+  const wasteBatches=ecoBatches?ecoBatches.filter(b=>b.status==="completed"&&(b.planned_qty||0)>0):[]
+  const totalPlanned=wasteBatches.reduce((s,b)=>s+b.planned_qty,0)
+  const totalActual=wasteBatches.reduce((s,b)=>s+Math.min(b.actual_qty||0,b.planned_qty),0)
+  const observedWastePct=totalPlanned>0?((totalPlanned-totalActual)/totalPlanned*100):null
+  const hasObservedWaste=wasteBatches.length>=3&&observedWastePct!=null
+
   // Cost helpers — BOM-based
   const costRaw=(rid)=>{const r=(data.recipes||[]).find(x=>x.id===rid);if(!r)return 0;return(r.bom||[]).filter(b=>{const inv=data.inventory.find(x=>x.id===b.itemId);return inv?.cat==="Råvare"}).reduce((s,b)=>{const inv=data.inventory.find(x=>x.id===b.itemId);return s+(inv?.costPer||0)*b.qty},0)}
   const costPack=(rid)=>{const r=(data.recipes||[]).find(x=>x.id===rid);if(!r)return 0;return(r.bom||[]).filter(b=>{const inv=data.inventory.find(x=>x.id===b.itemId);return inv?.cat!=="Råvare"}).reduce((s,b)=>{const inv=data.inventory.find(x=>x.id===b.itemId);return s+(inv?.costPer||0)*b.qty},0)}
@@ -1651,6 +1658,9 @@ function Economy({data,save,supabase}){
     {!hasEco&&<Card style={{marginBottom:14,borderLeft:`4px solid ${T.warn}`,background:T.accDD}}>
       <div style={{fontSize:13,color:T.warn,fontWeight:500}}>Omkostningsmodel ikke udfyldt</div>
       <div style={{fontSize:12,color:T.mid,marginTop:4}}>Klik "Omkostningsmodel" for at angive etiket, fragt, spild, arbejdskraft og faste omkostninger. Indtil da vises kun råvare- og emballagekost fra opskrifterne.</div>
+    </Card>}
+    {hasObservedWaste&&ecoWastePct>0&&Math.abs(observedWastePct-ecoWastePct)>1.5&&<Card style={{marginBottom:14,borderLeft:`4px solid ${T.warn}`,background:T.accDD,padding:"10px 14px"}}>
+      <div style={{fontSize:12,color:T.warn}}>Faktisk spild ({observedWastePct.toFixed(1)}%) afviger fra forventet ({ecoWastePct}%) — overvej at justere omkostningsmodellen.</div>
     </Card>}
     {recipes.map(r=>{
       const raw=costRaw(r.id);const pack=costPack(r.id)
@@ -1799,8 +1809,12 @@ function Economy({data,save,supabase}){
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 16px"}}>
         <Field label="Etiket pr. flaske (kr)" tip="Direkte etiketomkostning pr. enhed"><input type="number" step="0.1" value={ef.label_cost_per_unit||""} onChange={e=>setEf({...ef,label_cost_per_unit:parseFloat(e.target.value)||0})} placeholder="0"/></Field>
         <Field label="Fragt/prøve pr. flaske (kr)" tip="Gennemsnitlig fragt- eller prøveomkostning pr. enhed"><input type="number" step="0.1" value={ef.freight_cost_per_unit||""} onChange={e=>setEf({...ef,freight_cost_per_unit:parseFloat(e.target.value)||0})} placeholder="0"/></Field>
-        <Field label="Spild (% af råvarekost)" tip="Procent spild/svind beregnet kun på råvareomkostningen — ikke emballage"><input type="number" step="0.5" value={ef.waste_pct||""} onChange={e=>setEf({...ef,waste_pct:parseFloat(e.target.value)||0})} placeholder="0"/></Field>
-        <div/>
+        <Field label="Forventet spild (% af råvarekost)" tip="Manuel antagelse — procent spild/svind beregnet kun på råvareomkostningen, ikke emballage"><input type="number" step="0.5" value={ef.waste_pct||""} onChange={e=>setEf({...ef,waste_pct:parseFloat(e.target.value)||0})} placeholder="0"/></Field>
+        <Field label="Faktisk spild (fra historik)" tip="Auto-beregnet fra afsluttede batches: (planlagt − faktisk output) / planlagt. Kun til reference — bruges ikke i beregningen.">
+          {hasObservedWaste
+            ?<div style={{padding:"8px 12px",background:T.input,borderRadius:6,fontSize:13,fontFamily:T.fm,color:observedWastePct>(ef.waste_pct||0)?T.warn:T.ok,fontWeight:600}}>{observedWastePct.toFixed(1)}%<span style={{fontWeight:400,fontSize:11,color:T.dim,marginLeft:8}}>baseret på {wasteBatches.length} batches</span></div>
+            :<div style={{padding:"8px 12px",background:T.input,borderRadius:6,fontSize:12,color:T.dim}}>Ikke nok historik (min. 3 afsluttede batches{wasteBatches.length>0?`, har ${wasteBatches.length}`:""})</div>}
+        </Field>
         <Field label="Arbejdskraft pr. batch (kr)" tip="Samlet lønomkostning for én produktionsbatch"><input type="number" step="1" value={ef.labor_cost_per_batch||""} onChange={e=>setEf({...ef,labor_cost_per_batch:parseFloat(e.target.value)||0})} placeholder="0"/></Field>
         <Field label="Antaget batchstørrelse (stk)" tip="Bruges til at beregne arbejdskraft pr. flaske. Dette er en planlægningsantagelse — ikke en fast sandhed."><input type="number" step="1" value={ef.default_batch_size||""} onChange={e=>setEf({...ef,default_batch_size:parseInt(e.target.value)||0})} placeholder="50"/></Field>
       </div>
